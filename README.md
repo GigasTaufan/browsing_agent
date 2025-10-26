@@ -24,8 +24,8 @@ Proyek ini adalah implementasi agen browsing web sederhana yang dibuat menggunak
 
 1.  **Clone Repositori (jika Anda belum melakukannya):**
     ```bash
-    git clone <url-repositori>
-    cd <folder-repositori>
+    git clone https://github.com/GigasTaufan/browsing_agent.git
+    cd browsing_agent
     ```
 
 2.  **Install semua library yang dibutuhkan:**

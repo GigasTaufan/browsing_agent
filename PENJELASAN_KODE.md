@@ -58,17 +58,17 @@ def load_llm():
 
 Agen memerlukan "alat" untuk berinteraksi dengan dunia luar. Skrip ini mendefinisikan dua alat.
 
-### Alat 1: `browse_web` (Selenium)
+### Alat 1: `browse_tool` (Selenium)
 
 ```python
-@tool("web_browser", description="Buka URL dengan Selenium dan ambil teks dari <body> (dipotong 1500 char).")
-def browse_web(url: str) -> str:
+@tool("browse_tool", description="Buka URL dengan Selenium dan ambil teks dari <body> (dipotong 1500 char).")
+def browse_tool(url: str) -> str:
     """
     Menggunakan Selenium untuk membuka URL dan mengekstrak teks dari tag <body>.
     """
     # ... (logika selenium)
 ```
-- **`@tool(...)`**: *Decorator* ini secara otomatis mengubah fungsi `browse_web` menjadi sebuah `Tool` yang bisa dipahami oleh LangChain.
+- **`@tool(...)`**: *Decorator* ini secara otomatis mengubah fungsi `browse_tool` menjadi sebuah `Tool` yang bisa dipahami oleh LangChain.
 - **`description`**: Deskripsi ini sangat penting karena menjelaskan kepada LLM kapan dan bagaimana cara menggunakan alat ini.
 - **Logika Fungsi**: Menggunakan Selenium untuk membuka URL di mode *headless* (tanpa UI), mengambil konten teks, membersihkannya, dan memotongnya untuk efisiensi.
 
@@ -130,7 +130,7 @@ def main():
     """
     load_dotenv()
     llm = load_llm()
-    tools = [browse_web, search_tool]
+    tools = [browse_tool, search_tool]
     system_prompt = (
         "You are an agent that can use tools to answer questions. ..."
     )

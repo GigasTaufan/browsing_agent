@@ -45,12 +45,14 @@ def load_llm():
 # 2) Definisikan Tools
 
 ## TOOL 1: Selenium Web Browser
-@tool("web_browser", description="Buka URL dengan Selenium dan ambil teks dari <body> (dipotong 1500 char).")
-def browse_web(url: str) -> str:
+@tool("browse_tool", description="Buka URL dengan Selenium dan ambil teks dari <body> (dipotong 1500 char).")
+def browse_tool(url: str) -> str:
     """
     Menggunakan Selenium untuk membuka URL yang diberikan dan mengekstrak teks dari tag <body>.
     Mengembalikan 1500 karakter pertama dari teks yang dibersihkan.
     """
+    limit_tool_calls("browse_tool_counter")
+    
     try:
         print(f"\n[Browser Tool]: Mencoba membuka {url}...")
         chrome_options = Options()
@@ -81,7 +83,32 @@ def browse_web(url: str) -> str:
 
 
 ## TOOL 2: DuckDuckGo Web Search
-search_tool = DuckDuckGoSearchRun()
+@tool("search_tool", description="Lakukan pencarian web menggunakan DuckDuckGo.")
+# search_tool = DuckDuckGoSearchRun()
+def search_tool(query: str) -> str:
+    limit_tool_calls("search_tool_counter")
+    
+    try:
+        print(f"\n[Search Tool]: Searching '{query}'")
+        return DuckDuckGoSearchRun().run(query)
+        print(f"[Search Tool]: Sukses mendapatkan hasil pencarian.")
+        
+    except Exception as e:
+        print(f"[Search Tool]: Gagal melakukan pencarian untuk '{query}'. Detail error: {e}")
+
+## Max Tool Calls
+max_tool_calls = 5
+tool_calls_counter = {
+    "browse_tool_counter": 0,
+    "search_tool_counter": 0,
+}
+
+## Limit tool calls
+def limit_tool_calls(tool_name):
+    tool_calls_counter[tool_name] += 1
+    if tool_calls_counter[tool_name] > max_tool_calls:
+        print(f"[Tool Limit]: Batas panggilan untuk {tool_name} telah tercapai.")
+    return None
 
 
 # 3) Define Agent
@@ -131,7 +158,7 @@ def main():
     llm = load_llm()
 
     # 2) Daftar Tools
-    tools = [browse_web, search_tool]
+    tools = [browse_tool, search_tool]
 
     # 3) Create Agent
     ## Sytem Prompt or System Message

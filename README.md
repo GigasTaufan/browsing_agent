@@ -20,6 +20,60 @@ Proyek ini adalah implementasi agen browsing web sederhana yang dibuat menggunak
 6.  Jika belum cukup, agen akan mengulangi prosesnya (misalnya, mencari kata kunci lain atau membuka halaman lain) sampai yakin bisa menjawab.
 7.  Seluruh riwayat interaksi (termasuk pemanggilan alat) akan dikembalikan oleh agen.
 
+## Diagram Alur Kerja
+
+Berikut adalah diagram yang menggambarkan alur kerja agen dari awal hingga akhir:
+
+```mermaid
+flowchart TD
+
+    %% --- Subgraph 1: Interaksi Pengguna ---
+    subgraph Interaksi_Pengguna
+        A[Pengguna memberikan pertanyaan via terminal]
+    end
+
+    %% --- Subgraph 2: Proses di browsing_agent.py ---
+    subgraph Proses_browsing_agent
+        B[Fungsi `main` dijalankan]
+        C[Memuat LLM & Alat]
+        D[Agen dibuat]
+        E{Agen menerima pertanyaan}
+        F[Agen menyusun rencana eksekusi]
+        G{Pemilihan Alat}
+        H[Alat Pencari: DuckDuckGo]
+        I[Menghasilkan daftar URL]
+        J[Alat Browser: Selenium]
+        K[Menghasilkan konten teks halaman]
+        L[Agen menyusun jawaban akhir]
+
+        %% Alur internal
+        B --> C
+        C --> D
+        D --> E
+        E --> F
+        F --> G
+
+        G -- "Perlu mencari URL" --> H
+        H --> I
+        I --> F
+
+        G -- "Perlu membaca halaman" --> J
+        J --> K
+        K --> F
+
+        F -- "Informasi sudah cukup" --> L
+    end
+
+    %% --- Subgraph 3: Hasil Akhir ---
+    subgraph Hasil_Akhir
+        M[Jawaban final dicetak ke terminal]
+    end
+
+    %% --- Koneksi antar bagian ---
+    A --> B
+    L --> M
+
+```
 ## Instalasi & Pengaturan
 
 1.  **Clone Repositori (jika Anda belum melakukannya):**

@@ -66,18 +66,47 @@ def browse_tool(url: str) -> str:
     """
     Menggunakan Selenium untuk membuka URL dan mengekstrak teks dari tag <body>.
     """
+    limit_tool_calls("browse_tool_counter")
     # ... (logika selenium)
 ```
 - **`@tool(...)`**: *Decorator* ini secara otomatis mengubah fungsi `browse_tool` menjadi sebuah `Tool` yang bisa dipahami oleh LangChain.
 - **`description`**: Deskripsi ini sangat penting karena menjelaskan kepada LLM kapan dan bagaimana cara menggunakan alat ini.
-- **Logika Fungsi**: Menggunakan Selenium untuk membuka URL di mode *headless* (tanpa UI), mengambil konten teks, membersihkannya, dan memotongnya untuk efisiensi.
+- **Logika Fungsi**: Menggunakan Selenium untuk membuka URL di mode *headless* (tanpa UI), mengambil konten teks, membersihkannya, dan memotongnya untuk efisiensi. Di awal, fungsi ini memanggil `limit_tool_calls` untuk menghitung penggunaannya.
 
 ### Alat 2: `search_tool` (DuckDuckGo)
 
 ```python
-search_tool = DuckDuckGoSearchRun()
+@tool("search_tool", description="Lakukan pencarian web menggunakan DuckDuckGo.")
+def search_tool(query: str) -> str:
+    limit_tool_calls("search_tool_counter")
+    
+    try:
+        # ... (logika pencarian)
+        return DuckDuckGoSearchRun().run(query)
+    except Exception as e:
+        # ... (penanganan error)
 ```
-- Ini adalah alat siap pakai dari LangChain yang berfungsi untuk melakukan pencarian web.
+- Sama seperti `browse_tool`, alat pencari sekarang didefinisikan sebagai fungsi yang dibungkus oleh *decorator* `@tool`. Ini memungkinkan penambahan logika kustom, seperti pemanggilan `limit_tool_calls`.
+
+### Pembatasan Panggilan Alat (Tool Limiting)
+
+```python
+max_tool_calls = 5
+tool_calls_counter = {
+    "browse_tool_counter": 0,
+    "search_tool_counter": 0,
+}
+
+def limit_tool_calls(tool_name):
+    tool_calls_counter[tool_name] += 1
+    if tool_calls_counter[tool_name] > max_tool_calls:
+        print(f"[Tool Limit]: Batas panggilan untuk {tool_name} telah tercapai.")
+    return None
+```
+- Untuk mencegah agen terjebak dalam *loop* pemanggilan alat yang tidak perlu, sebuah mekanisme pembatas sederhana ditambahkan.
+- `max_tool_calls`: Menentukan berapa kali setiap alat dapat dipanggil.
+- `tool_calls_counter`: Sebuah *dictionary* untuk melacak jumlah panggilan untuk setiap alat.
+- `limit_tool_calls()`: Fungsi yang dipanggil oleh setiap alat untuk menaikkan penghitung dan memberikan peringatan jika batasnya terlampaui.
 
 ---
 
@@ -89,9 +118,7 @@ Logika untuk membuat dan menjalankan agen juga dipecah menjadi fungsi-fungsi.
 
 ```python
 def define_agent(model, tools, system_prompt):
-    """
-    Definisikan dan kembalikan agent dengan model, tools, dan system prompt yang diberikan.
-    """
+    # ...
     agent = create_agent(
         model=model,
         tools=tools,
@@ -99,25 +126,20 @@ def define_agent(model, tools, system_prompt):
     )
     return agent
 ```
-- Fungsi ini menerima model LLM, daftar alat, dan *system prompt* (instruksi peran) sebagai input.
-- `create_agent`: Ini adalah fungsi modern dari LangChain yang merakit agen, menangani bagaimana LLM harus berinteraksi dengan alat berdasarkan instruksi yang diberikan.
+- Fungsi ini menerima model LLM, daftar alat, dan *system prompt*. `create_agent` merakit agen, menangani bagaimana LLM harus berinteraksi dengan alat berdasarkan instruksi.
 
 ### Fungsi `run_agent()`
 
 ```python
 def run_agent(agent, question):
-    """
-    Jalankan agent dengan pertanyaan pengguna dan kembalikan hasilnya.
-    """
+    # ...
     result = agent.invoke({
         "messages": [{"role": "user", "content": question}]
     })
     # ... (logika untuk mengekstrak pesan terakhir)
     return final_answer
 ```
-- Fungsi ini mengambil agen yang sudah jadi dan pertanyaan dari pengguna.
-- `agent.invoke(...)`: Ini adalah perintah untuk memulai eksekusi agen. Input pengguna dimasukkan ke dalam daftar `messages` dengan peran `"user"`.
-- **Ekstraksi Respons**: Kode setelahnya mencari pesan terakhir dari asisten (`"assistant"` atau `"ai"`) dalam riwayat percakapan, yang merupakan jawaban final untuk pengguna.
+- Fungsi ini mengambil agen dan pertanyaan, lalu memanggil `agent.invoke()` untuk memulai eksekusi. Kode setelahnya mencari jawaban final dari riwayat percakapan.
 
 ---
 
@@ -125,24 +147,23 @@ def run_agent(agent, question):
 
 ```python
 def main():
-    """
-    Main function to run the browsing agent.
-    """
-    load_dotenv()
-    llm = load_llm()
-    tools = [browse_tool, search_tool]
-    system_prompt = (
-        "You are an agent that can use tools to answer questions. ..."
-    )
+    # ... (inisialisasi awal)
     agent = define_agent(model=llm, tools=tools, system_prompt=system_prompt)
 
     print("\nBrowsing Agent is ready...")
-    user_question = input("Masukkan pertanyaan Anda: ")
-    agent_answer = run_agent(agent, question=user_question)
-    print(agent_answer)
+    while True:
+        user_question = input("Masukkan pertanyaan Anda (atau ketik 'exit' untuk keluar): ")
+        
+        if user_question.lower() in ["exit", "quit"]:
+            print("Terima kasih! Sampai jumpa.")
+            break
+        
+        agent_answer = run_agent(agent, question=user_question)
+        print(agent_answer)
 
 if __name__ == "__main__":
     main()
 ```
-- **`main()`**: Fungsi ini bertindak sebagai orkestrator utama. Ia memanggil semua fungsi lain secara berurutan: memuat LLM, mendefinisikan alat, membuat agen, lalu meminta input pengguna dan menjalankan agen.
-- **`if __name__ == "__main__":`**: Ini adalah konstruksi standar Python yang memastikan fungsi `main()` hanya akan dijalankan ketika skrip dieksekusi secara langsung (bukan saat diimpor sebagai modul).
+- **`main()`**: Fungsi ini bertindak sebagai orkestrator utama. Ia memanggil semua fungsi lain secara berurutan.
+- **Loop Interaktif**: Bagian eksekusi agen sekarang berada di dalam `while True`. Ini membuat program terus berjalan, memungkinkan pengguna untuk mengajukan pertanyaan berulang kali. Program akan berhenti jika pengguna mengetik `exit` atau `quit`.
+- **`if __name__ == "__main__":`**: Konstruksi standar Python yang memastikan `main()` hanya berjalan saat skrip dieksekusi secara langsung.

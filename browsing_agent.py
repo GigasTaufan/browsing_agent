@@ -164,7 +164,7 @@ def main():
     ## Sytem Prompt or System Message
     system_prompt = (
         "You are an agent that can use tools to answer questions. "
-        "Use the provided tools (web search & selenium browser) to gather information and provide accurate answers."
+        "Use the provided tools (browse_tool & search_tool) to gather information and provide accurate answers."
     )
 
     ## Define the agent with llm model, tools, and system prompt
@@ -172,11 +172,18 @@ def main():
 
     # 4) Run agent
     print("\nBrowsing Agent is ready...")
-    ## get user question
-    user_question = input("Masukkan pertanyaan Anda: ")
-    ## get agent answer
-    agent_answer = run_agent(agent, question=user_question)
-    print(agent_answer)
+    while True:
+        # Dapatkan pertanyaan pengguna
+        user_question = input("Masukkan pertanyaan Anda (atau ketik 'exit' untuk keluar): ")
+        
+        # Loop exit condition 
+        if user_question.lower() in ["exit", "quit"]:
+            print("Terima kasih! Sampai jumpa.")
+            break
+        
+        # Dapatkan jawaban dari agen
+        agent_answer = run_agent(agent, question=user_question)
+        print(agent_answer)
 
 if __name__ == "__main__":
     main()

@@ -5,18 +5,8 @@ from dotenv import load_dotenv
 # LangChain
 from langchain_openai import AzureChatOpenAI
 from langchain.agents import create_agent
-from langchain.tools import tool
 
-# Tool web search DuckDuckGo
-from langchain_community.tools import DuckDuckGoSearchRun
-
-# Selenium Webdriver
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
-
+from conf.tool_selenium import browse_tool, search_tool
 
 # 1) Inisialisasi LLM (AzureChatOpenAI)
 def load_llm():
@@ -26,90 +16,24 @@ def load_llm():
     print("Load LLM Azure ...")
     api_key = os.getenv("AZURE_OPENAI_API_KEY")
     endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")      
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
     api_version = os.getenv("AZURE_OPENAI_PREVIEW_API_VERSION")
     
     llm = AzureChatOpenAI(
         api_key=api_key,
         azure_deployment=deployment,
         api_version=api_version,
+        # endpoint=endpoint,
         temperature=0.7,
-        streaming=True,
+        max_tokens=1500,
+        timeout=60,
+        max_retries=2,
+        # streaming=True,
         # callbacks=[StreamingStdOutCallbackHandler()],
     )
     print("LLM Azure loaded.")
     
     return llm
-
-
-# 2) Definisikan Tools
-
-## TOOL 1: Selenium Web Browser
-@tool("browse_tool", description="Buka URL dengan Selenium dan ambil teks dari <body> (dipotong 1500 char).")
-def browse_tool(url: str) -> str:
-    """
-    Menggunakan Selenium untuk membuka URL yang diberikan dan mengekstrak teks dari tag <body>.
-    Mengembalikan 1500 karakter pertama dari teks yang dibersihkan.
-    """
-    limit_tool_calls("browse_tool_counter")
-    
-    try:
-        print(f"\n[Browser Tool]: Mencoba membuka {url}...")
-        chrome_options = Options()
-        chrome_options.add_argument("--headless=new")  # headless modern
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-
-        driver.get(url)
-        time.sleep(2)  # beri waktu konten dinamis
-
-        body_element = driver.find_element(By.TAG_NAME, 'body')
-        page_text = body_element.text
-
-        driver.quit()
-
-        cleaned_text = " ".join(page_text.split())
-        truncated_text = cleaned_text[:1500]
-
-        print(f"[Browser Tool]: Sukses mengambil konten (dipotong 1500 karakter).")
-        return truncated_text
-
-    except Exception as e:
-        print(f"[Browser Tool]: Gagal membuka {url}. Error: {e}")
-        return f"Error: Tidak dapat mengambil konten dari {url}. Detail: {e}"
-
-
-## TOOL 2: DuckDuckGo Web Search
-@tool("search_tool", description="Lakukan pencarian web menggunakan DuckDuckGo.")
-# search_tool = DuckDuckGoSearchRun()
-def search_tool(query: str) -> str:
-    limit_tool_calls("search_tool_counter")
-    
-    try:
-        print(f"\n[Search Tool]: Searching '{query}'")
-        return DuckDuckGoSearchRun().run(query)
-        print(f"[Search Tool]: Sukses mendapatkan hasil pencarian.")
-        
-    except Exception as e:
-        print(f"[Search Tool]: Gagal melakukan pencarian untuk '{query}'. Detail error: {e}")
-
-## Max Tool Calls
-max_tool_calls = 5
-tool_calls_counter = {
-    "browse_tool_counter": 0,
-    "search_tool_counter": 0,
-}
-
-## Limit tool calls
-def limit_tool_calls(tool_name):
-    tool_calls_counter[tool_name] += 1
-    if tool_calls_counter[tool_name] > max_tool_calls:
-        print(f"[Tool Limit]: Batas panggilan untuk {tool_name} telah tercapai.")
-    return None
-
 
 # 3) Define Agent
 def define_agent(model, tools, system_prompt):

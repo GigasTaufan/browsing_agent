@@ -11,43 +11,56 @@
 
 # Project Overview
 
-`browsing_agent` adalah implementasi sederhana dari agen browsing web (MVP) yang dibangun menggunakan Python, framework LangChain, dan terhubung ke Azure OpenAI. Agen dapat mencari informasi di web menggunakan DuckDuckGo dan membaca konten halaman web menggunakan Selenium (headless Chrome) untuk menjawab pertanyaan pengguna.
+`browsing_agent` adalah agen browsing web yang aman, modular, dan legal-compliant untuk menjawab pertanyaan umum pengguna dengan informasi dari web. Agen menggunakan DuckDuckGo untuk pencarian, `httpx` untuk fetch (dengan Selenium sebagai fallback), dan Azure OpenAI sebagai LLM. Setiap jawaban mencantumkan sumber (citations).
 
 Bahasa utama yang digunakan dalam kode, komentar, dan dokumentasi adalah **Bahasa Indonesia**.
 
 # Technology Stack
 
-- **Python**: 3.8+ (notebook menggunakan kernel `dev` dengan Python 3.12.11)
-- **LLM Framework**: LangChain (`langchain`, `langchain-openai`, `langchain-community`, `langchain-core`, `langchainhub`)
+- **Python**: 3.11+
+- **LLM Framework**: LangChain 1.3+ (`langchain`, `langchain-openai`, `langchain-community`, `langchain-core`, `langchainhub`, `langchain-text-splitters`)
 - **LLM Provider**: Azure OpenAI (`AzureChatOpenAI`)
-- **Web Search**: DuckDuckGo (`DuckDuckGoSearchResults` dari `langchain_community`)
-- **Web Browser**: Selenium + `webdriver-manager` (Chrome headless)
+- **Web Search**: DuckDuckGo (`DuckDuckGoSearchResults` via `ddgs` package)
+- **HTTP Fetch**: `httpx` (primary)
+- **Browser Fallback**: Selenium + `webdriver-manager` (headless Chrome)
+- **Content Extraction**: `trafilatura` (primary) / `beautifulsoup4` + `lxml` (fallback)
 - **Environment**: `python-dotenv`
-- **Parsing**: `lxml`
-- **Notebook**: Jupyter (file `.ipynb` tersedia)
+- **Testing**: `pytest`
 
 # Project Structure
 
 ```
-browsing_agent_selenium.py   # Entry point utama — orkestrasi LLM, tools, dan loop interaktif
-conf/
-  tool_selenium.py           # Definisi tools: search_tool (DuckDuckGo) & browse_tool (Selenium)
-  tool_beatiful_soup.py      # Contoh minimal fetching dengan requests (tidak aktif)
-  tool_tavily.py             # Contoh minimal integrasi Tavily (tidak aktif)
-  tool_beatiful_soup.ipynb   # Notebook terkait BeautifulSoup
-docs/
-  PENJELASAN_KODE.md         # Penjelasan rinci kode browsing_agent.py
-  plan_upgrade.md            # Roadmap upgrade 11 fase dari MVP ke general browsing agent
-  note.md                    # Diagram Mermaid proses bisnis (tidak berkaitan langsung dengan kode agen)
-testing_create_agent.ipynb   # Notebook kosong (tidak digunakan)
-requirements.txt             # Daftar dependensi (tidak ada versi yang dipin)
-.env / .env.example          # Variabel lingkungan untuk kredensial Azure OpenAI & Tavily
-.vscode/settings.json        # Konfigurasi VS Code (conda default env manager)
+browsing_agent/
+├── main.py              # Entry point CLI — orkestrasi LLM, tools, agent loop
+├── config.py            # Load .env, konstanta, settings
+├── agent/
+│   └── planner.py       # Per-run state: tool limits, evidence store, blocked domains
+├── tools/
+│   ├── search.py        # DuckDuckGo search dengan retry (lite→auto), ranking, dedup
+│   ├── fetch.py         # HTTP-first fetcher + Selenium fallback, rate limit, robots
+│   └── extract.py       # Content extraction via trafilatura/BS4, Pydantic models
+├── policy/
+│   ├── guardrails.py    # Query & URL blocking (keyword / domain filter)
+│   ├── robots.py        # robots.txt checker dengan 1-hour TTL cache
+│   └── rate_limit.py    # Per-domain rate limiter (time.sleep)
+├── storage/
+│   └── evidence.py      # EvidenceStore: dedup by URL & content hash, citations
+├── tests/               # Unit tests (pytest)
+│   ├── test_evidence.py
+│   ├── test_extract.py
+│   ├── test_limits.py
+│   ├── test_rate_limit.py
+│   └── test_robots.py
+├── docs/
+│   ├── plan_upgrade.md  # Roadmap upgrade 11 fase (sebagian besar completed)
+│   └── PRD.md           # Product Requirements Document
+├── .env / .env.example  # Variabel lingkungan (kredensial Azure OpenAI & settings)
+└── .vscode/settings.json # Konfigurasi VS Code
 ```
 
 # Build and Run Commands
 
-Tidak ada build system formal (tidak ada `pyproject.toml`, `setup.py`, `Makefile`, atau konfigurasi serupa).
+Tidak ada build system formal (tidak ada `pyproject.toml`, `setup.py`, `Makefile`).
 
 **Instalasi:**
 ```bash
@@ -56,74 +69,82 @@ pip install -r requirements.txt
 
 **Menjalankan agen:**
 ```bash
-python browsing_agent_selenium.py
+python main.py "pertanyaan Anda"
+# atau mode interaktif:
+python main.py
 ```
 
-Script akan memuat variabel lingkungan dari `.env`, menginisialisasi LLM dan tools, lalu meminta pertanyaan via terminal. Ketik `exit` atau `quit` untuk keluar.
-
-**Menjalankan notebook:**
+**Menjalankan dengan verbose:**
 ```bash
-jupyter notebook testing_create_agent.ipynb
-# atau
-jupyter notebook conf/tool_beatiful_soup.ipynb
+python main.py "pertanyaan Anda" --verbose
+```
+
+**Menjalankan tests:**
+```bash
+pytest tests/
 ```
 
 # Code Style Guidelines
 
 - **Bahasa**: Komentar, docstring, dan string UI menggunakan Bahasa Indonesia.
 - **Penamaan**: `snake_case` untuk fungsi dan variabel.
-- **Struktur**: Kode dipecah menjadi fungsi-fungsi dengan tanggung jawab tunggal (`load_llm`, `define_agent`, `run_agent`, `main`).
+- **Struktur**: Kode dipecah menjadi fungsi-fungsi dengan tanggung jawab tunggal.
 - **Tools**: Didekorasi dengan `@tool` dari LangChain. Deskripsi `tool` harus jelas untuk LLM.
 - **Error handling**: Gunakan blok `try/except` sederhana dengan `print` ke stdout. Tidak ada logging framework.
-- **Konfigurasi**: Saat ini tersebar (magic numbers di file, variabel global untuk counter pemanggilan tool).
-- **Import grouping**: Impor bawaan Python → library pihak ketiga → modul lokal (`conf/`).
+- **Konfigurasi**: Terpusat di `config.py` + `.env` (tidak ada magic numbers di file lain).
+- **Import grouping**: Impor bawaan Python → library pihak ketiga → modul lokal (`agent/`, `tools/`, `policy/`, `storage/`).
 
 # Testing Instructions
 
-**Saat ini tidak ada test suite.** Tidak ada direktori `tests/`, file test, atau konfigurasi CI/CD.
+Test suite ada di direktori `tests/` menggunakan `pytest`.
 
-File `testing_create_agent.ipynb` adalah notebook kosong dan tidak berisi test.
+```bash
+pytest tests/
+```
 
-Jika menambahkan test, gunakan `pytest` dan ikuti roadmap di `docs/plan_upgrade.md` (Phase 10).
+Cakupan test:
+- `test_evidence.py` — deduplication by URL & content hash, citation formatting
+- `test_extract.py` — HTML extraction structure, main text, chunking
+- `test_limits.py` — counter increment, reset per query, ToolLimitReached
+- `test_rate_limit.py` — domain rate limit, no-wait on first request
+- `test_robots.py` — allow/disallow, fetch error fail-open
 
 # Security Considerations
 
-- **Kredensial**: Simpan di file `.env` (sudah termasuk di `.gitignore`). Jangan commit kredensial Azure OpenAI atau Tavily ke repository.
-- **Tool call limiting**: Saat ini menggunakan variabel global sederhana (`max_tool_calls = 5`) yang tidak reset antar query. Ini adalah keterbatasan yang diketahui, tercatat di `docs/plan_upgrade.md` Phase 2.
-- **No robots.txt checking**: Agen membuka URL apapun yang diberikan tanpa memeriksa `robots.txt`.
-- **No rate limiting**: Tidak ada throttling per domain.
-- **No input validation**: Query pengguna diteruskan langsung ke LLM dan search tools tanpa sanitasi.
-- **Browser isolation**: Selenium menggunakan mode headless dengan `ChromeDriverManager` yang mengunduh driver Chrome secara otomatis.
-- **Safe crawling policy**: Dokumen `docs/plan_upgrade.md` secara eksplisit melarang implementasi proxy rotation, fingerprint spoofing, CAPTCHA bypass, atau paywall bypass (Phase 3 dan 8).
+- **Kredensial**: Simpan di file `.env` (sudah termasuk di `.gitignore`). Jangan commit kredensial ke repository.
+- **Tool call limiting**: Menggunakan per-run state (`AgentRunState`) yang direset sebelum setiap query. Tidak ada global counter.
+- **robots.txt**: Diperiksa sebelum setiap fetch (`policy/robots.py`).
+- **Rate limiting**: Delay antar request ke domain yang sama (`policy/rate_limit.py`).
+- **Input validation**: Query dicek oleh guardrails sebelum diproses.
+- **Browser isolation**: Selenium menggunakan mode headless dengan `ChromeDriverManager`.
+- **Safe crawling policy**: Tidak ada proxy rotation, fingerprint spoofing, CAPTCHA bypass, atau paywall bypass. Dilarang keras.
 
 # Environment Variables
 
 Wajib diisi di file `.env` (salin dari `.env.example`):
 
-| Variable | Keterangan |
-|----------|-----------|
-| `AZURE_OPENAI_ENDPOINT` | Endpoint Azure OpenAI |
-| `AZURE_OPENAI_API_KEY` | API Key Azure OpenAI |
-| `AZURE_OPENAI_DEPLOYMENT_NAME` | Nama deployment model (default: `gpt-4o-mini`) |
-| `AZURE_OPENAI_PREVIEW_API_VERSION` | Versi API preview Azure OpenAI |
-| `TavilyClient` | API Key Tavily (opsional, hanya jika menggunakan `conf/tool_tavily.py`) |
+| Variable | Wajib | Default | Keterangan |
+|----------|-------|---------|------------|
+| `AZURE_OPENAI_ENDPOINT` | Ya | — | Endpoint Azure OpenAI |
+| `AZURE_OPENAI_API_KEY` | Ya | — | API Key Azure OpenAI |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | Tidak | `gpt-4o-mini` | Deployment model |
+| `AZURE_OPENAI_PREVIEW_API_VERSION` | Ya | — | Versi API preview |
+| `MAX_TOOL_CALLS` | Tidak | `5` | Batas tool calls per query |
+| `MAX_URLS_PER_QUERY` | Tidak | `3` | Batas URL fetch per query |
+| `MAX_SEARCH_RESULTS` | Tidak | `5` | Maksimum hasil pencarian |
+| `REQUEST_TIMEOUT` | Tidak | `30` | Timeout HTTP (detik) |
+| `BROWSER_FALLBACK_ENABLED` | Tidak | `true` | Aktifkan Selenium fallback |
+| `USER_AGENT` | Tidak | `BrowsingAgent/0.1` | User-Agent string |
+| `RATE_LIMIT_PER_DOMAIN_SECONDS` | Tidak | `1.0` | Delay antar domain (detik) |
+| `CHUNK_SIZE` | Tidak | `2000` | Ukuran chunk konten |
 
 # Upgrade Roadmap
 
-Proyek ini berstatus **MVP**. roadmap upgrade lengkap ada di `docs/plan_upgrade.md` dengan 11 fase meliputi:
-1. Refactor struktur modular
-2. Fix tool execution limits
-3. Safe crawling policy (robots.txt, rate limit, user-agent)
-4. Improve fetching (HTTP-first, fallback browser)
-5. Improve content extraction
-6. Evidence and citations
-7. Search and ranking
-8. Agent behavior & guardrails
-9. Config and environment
-10. Tests
-11. CLI improvements
+Proyek ini berstatus **post-MVP / v1.0-ready**. roadmap lengkap ada di `docs/plan_upgrade.md`.
 
-Sebelum mengimplementasikan fitur baru, periksa roadmap di `docs/plan_upgrade.md` untuk memastikan tidak bertabrakan dengan rencana yang sudah ada.
+Fase 1–10 (modularisasi, tool limits, safe crawling, fetching, extraction, evidence, search, guardrails, config, tests) sudah **largely implemented**.
+
+Fase 11 (CLI improvements) juga sudah diimplementasi.
 
 ---
 

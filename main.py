@@ -9,7 +9,7 @@ import sys
 import os
 from dotenv import load_dotenv
 
-from langchain_openai import AzureChatOpenAI
+from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from langchain.agents import create_agent
 
 import config
@@ -42,11 +42,30 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-# 1) Inisialisasi LLM (AzureChatOpenAI)
+# 1) Inisialisasi LLM
 def load_llm(verbose: bool = False):
-    """
-    Memuat Azure LLM dari environment variables.
-    """
+    """Memuat ModelHub jika API key tersedia, selain itu memakai Azure."""
+    if config.MODELHUB_API_KEY:
+        if not config.MODELHUB_BASE_URL or not config.MODELHUB_MODEL_NAME:
+            raise ValueError(
+                "MODELHUB_BASE_URL dan MODELHUB_MODEL_NAME wajib diisi jika MODELHUB_API_KEY digunakan."
+            )
+        if verbose:
+            print("[Config]: Load LLM ModelHub ...")
+        llm = ChatOpenAI(
+            api_key=config.MODELHUB_API_KEY,
+            base_url=config.MODELHUB_BASE_URL,
+            model=config.MODELHUB_MODEL_NAME,
+            default_headers={"User-Agent": "curl/8.0"},
+            temperature=0.7,
+            max_tokens=1500,
+            timeout=60,
+            max_retries=2,
+        )
+        if verbose:
+            print("[Config]: LLM ModelHub loaded.")
+        return llm
+
     if verbose:
         print("[Config]: Load LLM Azure ...")
     llm = AzureChatOpenAI(
@@ -125,7 +144,10 @@ def main():
     load_dotenv()
 
     if verbose:
-        print(f"[Config]: Deployment = {config.AZURE_OPENAI_DEPLOYMENT_NAME}")
+        if config.MODELHUB_API_KEY:
+            print(f"[Config]: ModelHub model = {config.MODELHUB_MODEL_NAME}")
+        else:
+            print(f"[Config]: Deployment = {config.AZURE_OPENAI_DEPLOYMENT_NAME}")
         print(f"[Config]: MAX_TOOL_CALLS = {config.MAX_TOOL_CALLS}")
         print(f"[Config]: USER_AGENT = {config.USER_AGENT}")
         print(f"[Config]: BROWSER_FALLBACK = {config.BROWSER_FALLBACK_ENABLED}")

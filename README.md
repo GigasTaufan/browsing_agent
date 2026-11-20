@@ -90,18 +90,26 @@ uv run python -m pytest tests/
 
 | Variabel | Default | Keterangan |
 |----------|---------|------------|
-| `AZURE_OPENAI_ENDPOINT` | — (wajib) | Endpoint Azure OpenAI |
-| `AZURE_OPENAI_API_KEY` | — (wajib) | API Key Azure OpenAI |
-| `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o-mini` | Nama deployment model |
-| `AZURE_OPENAI_PREVIEW_API_VERSION` | — (wajib) | Versi API preview |
+| `AZURE_OPENAI_ENDPOINT` | — (wajib untuk Azure) | Endpoint Azure OpenAI |
+| `AZURE_OPENAI_API_KEY` | — (wajib untuk Azure) | API Key Azure OpenAI |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o-mini` | Nama deployment model Azure |
+| `AZURE_OPENAI_PREVIEW_API_VERSION` | — (wajib untuk Azure) | Versi API preview |
+| `MODELHUB_API_KEY` | — (opsional) | Jika diisi, aplikasi memilih ModelHub alih-alih Azure |
+| `MODELHUB_BASE_URL` | `https://api-modelhub.aiplayground.id/v1` | Endpoint OpenAI-compatible ModelHub |
+| `MODELHUB_MODEL_NAME` | `gpt-4o-mini` | Nama model ModelHub |
 | `MAX_TOOL_CALLS` | `5` | Batas pemanggilan tool per query |
 | `MAX_URLS_PER_QUERY` | `3` | Batas URL unik yang dicoba di-fetch per query; gagal tetap dihitung, URL yang sama tidak menambah kuota |
 | `MAX_SEARCH_RESULTS` | `5` | Maksimum hasil search yang ditampilkan |
 | `REQUEST_TIMEOUT` | `30` | Timeout HTTP request (detik) |
 | `BROWSER_FALLBACK_ENABLED` | `true` | Aktifkan Selenium fallback |
-| `USER_AGENT` | `BrowsingAgent/0.1` | User-Agent string |
+| `USER_AGENT` | `BrowsingAgent/0.1` | User-Agent untuk pengambilan halaman web |
 | `RATE_LIMIT_PER_DOMAIN_SECONDS` | `1.0` | Delay antar request ke domain sama (detik) |
 | `CHUNK_SIZE` | `2000` | Ukuran chunk konten halaman |
+
+Untuk menjalankan contoh penggunaan API ModelHub secara langsung:
+```bash
+uv run docs/modelhub.py
+```
 
 ## Kepatuhan & Batasan
 

@@ -9,6 +9,7 @@ import time
 from typing import Optional
 
 import httpx
+from bs4 import BeautifulSoup
 from langchain.tools import tool
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -124,7 +125,7 @@ _rate_limiter = DomainRateLimiter()
 def _is_js_heavy(content_type: str, html: str) -> bool:
     """
     Deteksi halaman yang mungkin perlu browser (JS-heavy).
-    Simple heuristic: jika content-type bukan HTML atau body terlalu kecil.
+    Heuristik sederhana: HTML dengan teks bersih kurang dari 500 karakter.
     """
     if "html" not in content_type:
         return False  # Bukan HTML — tidak ada gunanya pakai browser
@@ -132,9 +133,7 @@ def _is_js_heavy(content_type: str, html: str) -> bool:
     # Jika body text terlalu pendek mungkin JS belum render
     # Threshold: < 500 karakter teks bersih
     text_length = len(" ".join(BeautifulSoup(html, "lxml").get_text().split()))
-    if text_length < 500:
-        return True
-    return False
+    return text_length < 500
 
 
 @tool("browse_tool", description="Buka URL dengan HTTP-first (fallback browser) dan ambil teks dari <body>.")
@@ -159,6 +158,15 @@ def browse_tool(url: str) -> str:
     if blocked:
         return reason
 
+    # Batasi URL unik sebelum akses jaringan, termasuk pengecekan robots.txt.
+    state = get_run_state()
+    if state is not None and url not in state.urls_fetched:
+        if len(state.urls_fetched) >= config.MAX_URLS_PER_QUERY:
+            return (
+                f"[URL Limit]: Batas URL untuk query ini telah tercapai "
+                f"(maksimum {config.MAX_URLS_PER_QUERY} URL unik)."
+            )
+
     # 4) Robots.txt check
     if not is_url_allowed(url):
         return f"[Robots Policy]: URL '{url}' tidak diizinkan oleh robots.txt."
@@ -166,6 +174,10 @@ def browse_tool(url: str) -> str:
     # 5) Rate limit
     _rate_limiter.wait_if_needed(url)
 
+
+    # Percobaan gagal tetap memakai kuota; retry/fallback URL yang sama tidak.
+    if state is not None:
+        state.urls_fetched.add(url)
     # 6) HTTP fetch (primary)
     print(f"\n[Browser Tool]: Fetching {url} via HTTP...")
     fetcher = _get_http_fetcher()
@@ -189,13 +201,8 @@ def browse_tool(url: str) -> str:
         )
 
     # 8) Cek apakah perlu fallback ke browser (JS-heavy detection)
-    from bs4 import BeautifulSoup
-    soup_text = " ".join(BeautifulSoup(html, "lxml").get_text().split())
-    is_js = len(soup_text) < 500
-
-    if is_js and config.BROWSER_FALLBACK_ENABLED:
-        print(f"[Browser Tool]: Halaman terlalu ringan ({len(soup_text)} chars), "
-              "mencoba fallback via Selenium...")
+    if config.BROWSER_FALLBACK_ENABLED and _is_js_heavy(content_type, html):
+        print("[Browser Tool]: Teks halaman terlalu pendek, mencoba fallback via Selenium...")
         try:
             driver = _get_browser()
             driver.get(url)
@@ -218,7 +225,7 @@ def browse_tool(url: str) -> str:
     extracted = extract_page(html, url, status_code=status)
     _store_evidence(extracted)
 
-    print(f"[Browser Tool]: Sukses fetch via HTTP ({len(soup_text)} chars).")
+    print(f"[Browser Tool]: Sukses fetch via HTTP ({len(extracted.main_text)} chars).")
     return _truncated_for_llm(extracted)
 
 
@@ -227,7 +234,6 @@ def _store_evidence(extracted) -> None:
     state = get_run_state()
     if state is not None:
         state.evidence_store.add(extracted)
-        state.urls_fetched.add(extracted.url)
 
 
 def _truncated_for_llm(extracted, max_chars: int = 3000) -> str:

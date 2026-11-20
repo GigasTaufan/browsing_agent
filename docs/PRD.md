@@ -83,7 +83,7 @@ browsing_agent/
 | **Search Ranking** | Filter & rank URL berdasarkan relevansi, freshness, source quality, deduplication. |
 | **Safe Crawling** | Cek `robots.txt`, transparent User-Agent, per-domain rate limit, stop pada 403/429/CAPTCHA. |
 | **Tool Execution Limits** | Counter reset per query; batas maksimum tool calls & URLs per query. |
-| **CLI Improvement** | Mode argumen: `python main.py "your question" --verbose`; output sumber di akhir. |
+| **CLI Improvement** | Mode argumen: `uv run main.py "your question" --verbose`; output sumber di akhir. |
 | **Testing** | Unit test untuk robots checker, rate limiter, URL normalization, extractor, tool-call limit. |
 
 ---
@@ -145,7 +145,7 @@ browsing_agent/
 
 ### FR-8: CLI
 - **FR-8.1**: Pertahankan CLI interaktif (`input()` loop) sebagai mode default.
-- **FR-8.2**: Tambah mode argumen: `python main.py "your question" --verbose`.
+- **FR-8.2**: Tambah mode argumen: `uv run main.py "your question" --verbose`.
 - **FR-8.3**: Cetak daftar sumber yang digunakan di akhir jawaban.
 
 ---
@@ -336,7 +336,7 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 - **Deliverables**:
   - `config.py`: Load `.env`, validasi settings.
   - Update `.env.example`.
-  - Pin dependency versions di `requirements.txt`.
+  - Kelola dependensi di `pyproject.toml` dan kunci versinya di `uv.lock`.
   - Settings baru:
     - `MAX_TOOL_CALLS`
     - `MAX_URLS_PER_QUERY`
@@ -367,12 +367,12 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 ### Phase 11 — CLI Improvements
 - **Goal**: Meningkatkan pengalaman CLI.
 - **Deliverables**:
-  - Mode argumen: `python main.py "your question"`.
+  - Mode argumen: `uv run main.py "your question"`.
   - Flag `--verbose`.
   - Output daftar sumber di akhir.
   - Pertahankan mode interaktif.
 - **Acceptance Criteria**:
-  - `python main.py "query"` menghasilkan jawaban.
+  - `uv run main.py "query"` menghasilkan jawaban.
   - `--verbose` menunjukkan log detail.
   - Mode interaktif tetap berfungsi.
 
@@ -384,7 +384,7 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 > Sebagai pengguna umum, saya ingin mengetik pertanyaan di terminal dan mendapat jawaban akurat dengan sumber, agar saya bisa mempercayai informasi tersebut.
 
 **Skenario**:
-1. Pengguna menjalankan: `python main.py "Siapa penemu telepon?"`
+1. Pengguna menjalankan: `uv run main.py "Siapa penemu telepon?"`
 2. Agen mencari via DuckDuckGo.
 3. Agen memilih URL terbaik, cek robots.txt, dan fetch.
 4. Agen menyusun jawaban: "Penemu telepon adalah Alexander Graham Bell."
@@ -394,7 +394,7 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 > Sebagai pengguna teknis, saya ingin melihat proses yang dilakukan agen (search, fetch, policy check) agar saya bisa memahami dan debug jika terjadi masalah.
 
 **Skenario**:
-1. Pengguna menjalankan: `python main.py "query" --verbose`
+1. Pengguna menjalankan: `uv run main.py "query" --verbose`
 2. Terminal menampilkan log tiap step: search terms, URLs yang di-rank, robots.txt status, fetch result, evidence stored.
 
 ### US-3: Developer Maintainer
@@ -485,7 +485,7 @@ Aplikasi telah memenuhi semua acceptance criteria:
 | DuckDuckGo mengubah format output | Abstraksi interface search provider (Phase 7). |
 | Website blokir User-Agent agen | Gunakan User-Agent transparan dan patuh robots.txt; tidak bypass. |
 | Selenium overhead tinggi | HTTP-first + reuse session (Phase 4). |
-| LangChain breaking changes | Pin versions di `requirements.txt` (Phase 9). |
+| LangChain breaking changes | Kunci versi di `uv.lock` (Phase 9). |
 
 ### Constraints
 - Tidak boleh mengimplementasikan: proxy rotation, fingerprint spoofing, CAPTCHA bypass, paywall bypass.

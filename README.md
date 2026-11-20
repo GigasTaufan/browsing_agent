@@ -46,46 +46,44 @@ browsing_agent/
 
 ## Instalasi
 
-**Prasyarat:** Python 3.11+
+**Prasyarat:** [uv](https://docs.astral.sh/uv/getting-started/installation/). Python 3.11+; uv dapat mengunduh Python jika belum tersedia.
 
 ```bash
 # 1. Clone repo
 git clone https://github.com/GigasTaufan/browsing_agent.git
 cd browsing_agent
 
-# 2. Buat virtual environment (opsional tapi dianjurkan)
-uv venv --python 3.11
-.venv\Scripts\activate  # Windows
-# atau: source .venv/bin/activate  # Linux/Mac
+# 2. Buat .venv dan install dependensi aplikasi + pengujian dari uv.lock
+uv sync --locked
 
-# 3. Install dependensi
-uv pip install -r requirements.txt
-
-# 4. Setup environment
-copy .env.example .env
+# 3. Setup kredensial (Linux/Mac)
+cp .env.example .env
+# Windows PowerShell: Copy-Item .env.example .env
 # Edit .env dan isi kredensial Azure OpenAI Anda
 ```
+
+Dependensi dikelola di `pyproject.toml`; `uv.lock` mengunci versinya agar instalasi konsisten. `uv run` memakai `.venv` otomatis, tanpa aktivasi manual. Untuk instalasi tanpa dependensi pengujian, gunakan `uv sync --locked --no-dev`.
 
 ## Cara Menjalankan
 
 ### Mode argumen (one-shot)
 ```bash
-python main.py "Siapa CEO Telkom Indonesia saat ini?"
+uv run main.py "Siapa CEO Telkom Indonesia saat ini?"
 ```
 
 ### Mode interaktif
 ```bash
-python main.py
+uv run main.py
 ```
 
 ### Mode verbose (log detail setiap step)
 ```bash
-python main.py "your question" --verbose
+uv run main.py "pertanyaan Anda" --verbose
 ```
 
 ### Jalankan tests
 ```bash
-pytest tests/
+uv run python -m pytest tests/
 ```
 
 ## Konfigurasi Environment
@@ -97,7 +95,7 @@ pytest tests/
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o-mini` | Nama deployment model |
 | `AZURE_OPENAI_PREVIEW_API_VERSION` | — (wajib) | Versi API preview |
 | `MAX_TOOL_CALLS` | `5` | Batas pemanggilan tool per query |
-| `MAX_URLS_PER_QUERY` | `3` | Batas URL yang difetch per query |
+| `MAX_URLS_PER_QUERY` | `3` | Batas URL unik yang dicoba di-fetch per query; gagal tetap dihitung, URL yang sama tidak menambah kuota |
 | `MAX_SEARCH_RESULTS` | `5` | Maksimum hasil search yang ditampilkan |
 | `REQUEST_TIMEOUT` | `30` | Timeout HTTP request (detik) |
 | `BROWSER_FALLBACK_ENABLED` | `true` | Aktifkan Selenium fallback |

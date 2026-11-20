@@ -61,9 +61,9 @@ Phase 10 — Tests ✅ **COMPLETED**
   - `test_evidence.py`, `test_extract.py`, `test_limits.py`, `test_rate_limit.py`, `test_robots.py`
 
 Phase 11 — CLI ✅ **COMPLETED**
-- One-shot mode: `python main.py "your question"`
-- Interactive mode: `python main.py`
-- Verbose flag: `python main.py "query" --verbose`
+- One-shot mode: `uv run main.py "your question"`
+- Interactive mode: `uv run main.py`
+- Verbose flag: `uv run main.py "query" --verbose`
 - Sources (citations) appended to final answer.
 
 ---

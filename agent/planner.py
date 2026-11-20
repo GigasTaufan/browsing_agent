@@ -22,7 +22,7 @@ class AgentRunState:
     def __init__(self):
         # Counter per jenis tool
         self.tool_calls: Dict[str, int] = {"browse_tool": 0, "search_tool": 0}
-        # Set URL yang sudah di-fetch untuk query ini
+        # URL unik yang dicoba di-fetch, termasuk percobaan gagal
         self.urls_fetched: Set[str] = set()
         # Evidence store untuk citations
         self.evidence_store = EvidenceStore()

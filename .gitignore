@@ -4,6 +4,8 @@
 # IDEs
 .vscode/
 .idea/
+.superpowers/
+docs/superpowers/
 
 # Python
 .venv/

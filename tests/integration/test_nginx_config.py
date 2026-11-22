@@ -114,7 +114,7 @@ HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
             "api",
             "--volume",
             f"{stub_script}:/stub_api.py:ro,Z",
-            "python:3.11-slim",
+            "python:3.14-slim",
             "python",
             "/stub_api.py",
         )

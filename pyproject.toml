@@ -2,7 +2,7 @@
 name = "browsing-agent"
 version = "1.0.0"
 description = "Agen browsing web dengan Azure OpenAI dan sumber jawaban."
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     "python-dotenv>=1.0.0",
     "langchain>=1.0.0",

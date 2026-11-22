@@ -46,7 +46,7 @@ browsing_agent/
 
 ## Instalasi
 
-**Prasyarat:** [uv](https://docs.astral.sh/uv/getting-started/installation/). Python 3.11+; uv dapat mengunduh Python jika belum tersedia.
+**Prasyarat:** [uv](https://docs.astral.sh/uv/getting-started/installation/). Python 3.14+; uv dapat mengunduh Python jika belum tersedia.
 
 ```bash
 # 1. Clone repo

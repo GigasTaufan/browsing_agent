@@ -17,7 +17,7 @@ Bahasa utama yang digunakan dalam kode, komentar, dan dokumentasi adalah **Bahas
 
 # Technology Stack
 
-- **Python**: 3.11+
+- **Python**: 3.14+
 - **LLM Framework**: LangChain 1.3+ (`langchain`, `langchain-openai`, `langchain-community`, `langchain-core`, `langchainhub`, `langchain-text-splitters`)
 - **LLM Provider**: Azure OpenAI (`AzureChatOpenAI`)
 - **Web Search**: DuckDuckGo (`DuckDuckGoSearchResults` via `ddgs` package)

@@ -3,56 +3,53 @@ Orkestrasi agen: state per-query, eksekusi, dan synthesize jawaban dengan citati
 Menggantikan counter global di tool_selenium.py lama.
 """
 
-from typing import Dict, Set, Any
+from dataclasses import dataclass
+from contextvars import ContextVar, Token
+from typing import Dict, Set
 
-from storage.evidence import EvidenceStore
+from storage.evidence import EvidenceItem, EvidenceStore
 
 
 class ToolLimitReached(Exception):
     """Exception yang dilempar saat batas pemanggilan tool tercapai."""
-    pass
 
 
 class AgentRunState:
-    """
-    Menyimpan state untuk satu sesi query pengguna.
-    Digunakan untuk menggantikan counter global di tool_selenium.py lama.
-    """
+    """State yang terisolasi untuk satu sesi query pengguna."""
+
+    _active: ContextVar["AgentRunState | None"] = ContextVar("agent_run_state", default=None)
 
     def __init__(self):
-        # Counter per jenis tool
         self.tool_calls: Dict[str, int] = {"browse_tool": 0, "search_tool": 0}
-        # URL unik yang dicoba di-fetch, termasuk percobaan gagal
         self.urls_fetched: Set[str] = set()
-        # Evidence store untuk citations
         self.evidence_store = EvidenceStore()
-        # Status blocked domain untuk query ini (403/429/CAPTCHA)
         self.blocked_domains: Set[str] = set()
+        self._token: Token | None = None
 
+    def __enter__(self) -> "AgentRunState":
+        self._token = self._active.set(self)
+        return self
 
-# --- Global per-run state (di-reset sebelum setiap agent.invoke) ---
-_current_run_state: AgentRunState | None = None
-
-
-def reset_run_state() -> AgentRunState:
-    """
-    Reset state agar counter tool calls dimulai dari nol untuk query baru.
-    Dipanggil di awal setiap run_agent().
-    """
-    global _current_run_state
-    _current_run_state = AgentRunState()
-    return _current_run_state
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if self._token is not None:
+            self._active.reset(self._token)
+            self._token = None
 
 
 def get_run_state() -> AgentRunState | None:
     """Mengembalikan state untuk sesi query yang sedang berjalan."""
-    return _current_run_state
+    return AgentRunState._active.get()
+
+
+@dataclass
+class AgentRunResult:
+    """Jawaban final beserta evidence terstruktur yang mendasarinya."""
+    answer: str
+    citations: list[EvidenceItem]
 
 
 def check_and_increment(tool_name: str, max_calls: int) -> None:
-    """
-    Increment counter tool dan raise ToolLimitReached jika melebihi batas.
-    """
+    """Increment counter tool dan raise ToolLimitReached jika melebihi batas."""
     state = get_run_state()
     if state is None:
         return
@@ -83,3 +80,4 @@ def block_domain_for_run(url: str) -> None:
         return
     domain = urlparse(url).netloc.lower()
     state.blocked_domains.add(domain)
+

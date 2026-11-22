@@ -13,7 +13,7 @@ from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from langchain.agents import create_agent
 
 import config
-from agent.planner import reset_run_state, get_run_state
+from agent.planner import AgentRunState, AgentRunResult
 from policy.guardrails import is_query_blocked
 from tools.search import search_tool
 from tools.fetch import browse_tool, fetcher_cleanup
@@ -94,43 +94,45 @@ def define_agent(model, tools, system_prompt):
 
 
 # 3) Jalankan Agent
-def run_agent(agent, question: str, verbose: bool = False):
-    """
-    Menjalankan agent untuk satu pertanyaan pengguna.
-    Reset state per-query, terapkan guardrails, outputkan citations.
-    """
-    reset_run_state()
+def run_agent(agent, question: str, verbose: bool = False) -> AgentRunResult:
+    """Run one isolated agent query and return its answer and evidence."""
+    with AgentRunState() as state:
+        blocked, reason = is_query_blocked(question)
+        if blocked:
+            return AgentRunResult(answer=reason, citations=[])
 
-    # Guardrail: cek query user
-    blocked, reason = is_query_blocked(question)
-    if blocked:
-        print("\n--- Jawaban Final Agent ---")
-        return reason
+        if verbose:
+            print(f"[Planner]: Menerima query: {question!r}")
+            print("[Planner]: Mengirim ke agent...")
 
-    if verbose:
-        print(f"[Planner]: Menerima query: {question!r}")
-        print("[Planner]: Mengirim ke agent...")
+        result = agent.invoke({
+            "messages": [{"role": "user", "content": question}]
+        })
 
-    result = agent.invoke({
-        "messages": [{"role": "user", "content": question}]
-    })
+        messages = result.get("messages", [])
+        final_msg = None
+        for message in reversed(messages):
+            role = getattr(message, "role", None) or getattr(message, "type", None)
+            if role in ("assistant", "ai"):
+                final_msg = message
+                break
 
-    messages = result.get("messages", [])
-    final_msg = None
-    for m in reversed(messages):
-        role = getattr(m, "role", None) or getattr(m, "type", None)
-        if role in ("assistant", "ai"):
-            final_msg = m
-            break
+        answer = final_msg.content if final_msg else result
+        return AgentRunResult(
+            answer=str(answer), citations=list(state.evidence_store.items)
+        )
 
-    final_answer = final_msg.content if final_msg else result
 
-    # Tambahkan citations di akhir jawaban
-    state = get_run_state()
-    if state and state.evidence_store.items:
-        final_answer += state.evidence_store.get_citations_text()
-
-    return final_answer
+def _render_cli_result(result: AgentRunResult) -> str:
+    """Render structured evidence using the legacy CLI citation format."""
+    answer = result.answer
+    if result.citations:
+        citations = "\n".join(
+            f"{index}. [{item.title or item.canonical_url}]({item.canonical_url})"
+            for index, item in enumerate(result.citations, start=1)
+        )
+        answer += "\n\n---\nSumber:\n" + citations
+    return answer
 
 
 def main():
@@ -174,7 +176,7 @@ def main():
             question = args.question
 
         answer = run_agent(agent, question, verbose=verbose)
-        print(answer)
+        print(_render_cli_result(answer))
     else:
         # Mode interaktif: loop input()
         print("\nBrowsing Agent is ready... (mode interaktif)")
@@ -187,7 +189,7 @@ def main():
                     break
 
                 agent_answer = run_agent(agent, question=user_question, verbose=verbose)
-                print(agent_answer)
+                print(_render_cli_result(agent_answer))
         finally:
             fetcher_cleanup()
 

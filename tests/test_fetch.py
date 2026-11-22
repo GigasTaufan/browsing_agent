@@ -6,23 +6,22 @@ from unittest.mock import Mock
 import pytest
 
 import config
-from agent.planner import reset_run_state
+from agent.planner import AgentRunState
 from tools import fetch
 
 
 @pytest.fixture
 def fetcher(monkeypatch):
-    reset_run_state()
-    monkeypatch.setattr(config, "MAX_TOOL_CALLS", 20)
-    monkeypatch.setattr(config, "MAX_URLS_PER_QUERY", 1)
-    monkeypatch.setattr(config, "BROWSER_FALLBACK_ENABLED", False)
-    monkeypatch.setattr(fetch, "is_url_allowed", Mock(return_value=True))
-    monkeypatch.setattr(fetch._rate_limiter, "wait_if_needed", Mock())
-    client = Mock(max_retries=3)
-    client.fetch.return_value = (200, "text/html", "<html><body>Artikel uji</body></html>")
-    monkeypatch.setattr(fetch, "_get_http_fetcher", lambda: client)
-    yield client
-    reset_run_state()
+    with AgentRunState():
+        monkeypatch.setattr(config, "MAX_TOOL_CALLS", 20)
+        monkeypatch.setattr(config, "MAX_URLS_PER_QUERY", 1)
+        monkeypatch.setattr(config, "BROWSER_FALLBACK_ENABLED", False)
+        monkeypatch.setattr(fetch, "is_url_allowed", Mock(return_value=True))
+        monkeypatch.setattr(fetch._rate_limiter, "wait_if_needed", Mock())
+        client = Mock(max_retries=3)
+        client.fetch.return_value = (200, "text/html", "<html><body>Artikel uji</body></html>")
+        monkeypatch.setattr(fetch, "_get_http_fetcher", lambda: client)
+        yield client
 
 
 def test_url_limit_blocks_network_and_resets(fetcher):
@@ -33,10 +32,10 @@ def test_url_limit_blocks_network_and_resets(fetcher):
     fetch.is_url_allowed.assert_not_called()
     fetcher.fetch.assert_called_once_with("https://example.com/a")
 
-    reset_run_state()
-    result = fetch.browse_tool.invoke({"url": "https://example.com/b"})
-    assert "Artikel uji" in result
-    fetcher.fetch.assert_called_with("https://example.com/b")
+    with AgentRunState():
+        result = fetch.browse_tool.invoke({"url": "https://example.com/b"})
+        assert "Artikel uji" in result
+        fetcher.fetch.assert_called_with("https://example.com/b")
 
 
 def test_failed_fetch_counts_but_same_url_can_retry(fetcher):

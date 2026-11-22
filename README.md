@@ -111,6 +111,40 @@ Untuk menjalankan contoh penggunaan API ModelHub secara langsung:
 uv run docs/modelhub.py
 ```
 
+## API melalui Docker Compose
+
+API dijalankan hanya di jaringan internal Compose; Nginx menerbitkan UI dan API pada port `8080` host. Buat `.env` lokal dari `.env.example`, lalu ganti semua nilai placeholder dengan nilai acak/rahasia milik Anda. `API_ALLOWED_KEYS` menerima daftar key caller yang dipisahkan koma; masukkan `UI_API_KEY` ke daftar tersebut. Simpan `.env` dengan izin akses terbatas dan jangan commit atau membagikan isinya.
+
+```bash
+cp .env.example .env
+# Edit .env: set API_ALLOWED_KEYS dan UI_API_KEY yang unik serta kredensial provider.
+docker compose up --build -d
+docker compose ps
+docker compose down
+```
+
+Buka halaman uji pada <http://localhost:8080/>. Form UI mengirim permintaan ke `/ui-api/v1/ask`; key UI diberikan Nginx ke API dan tidak ditanamkan di HTML/JavaScript. Siapa pun yang dapat mengakses halaman uji dapat memakai key UI melalui halaman tersebut, sehingga batasi akses jaringan ke UI. Jangan publikasikan port ini ke internet. Nginx pada konfigurasi ini hanya HTTP; sediakan HTTPS pada reverse proxy/terminasi TLS yang tepercaya untuk trafik intranet, dan batasi akses ke jaringan yang memang diizinkan.
+
+Caller API mengirim bearer key sendiri melalui endpoint Nginx `/api/v1/ask`:
+
+```bash
+curl --fail-with-body -X POST http://localhost:8080/api/v1/ask \
+  -H 'Authorization: Bearer GANTI_DENGAN_CALLER_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Apa perkembangan terbaru energi surya?"}'
+```
+
+Sukses menghasilkan JSON berisi `answer` dan `citations` (array citation dengan `id`, `url`, dan `snippet`). Key hilang/tidak sah menghasilkan HTTP `401`; pertanyaan kosong menghasilkan HTTP `422`. Respons kegagalan agent menggunakan HTTP `500` dengan envelope `{"error":{"code":"internal_error","message":"Request failed"}}`. Endpoint health publik Nginx tersedia pada `/healthz`.
+
+Jangan gunakan kredensial provider nyata dalam pengujian. Tes unit API memakai agent stub dan tidak menghubungi provider.
+
+### Batasan keamanan
+
+- Jaringan API tidak dipublikasikan langsung ke host; akses caller dilakukan lewat Nginx.
+- `/api/` meneruskan header `Authorization` caller apa adanya, sedangkan `/ui-api/` menggunakan `UI_API_KEY` dari environment Nginx.
+- Halaman UI merupakan halaman uji, bukan autentikasi pengguna. Semua pengakses dapat memakai akses API yang diberikan key UI.
+- Jangan mengekspos port HTTP `8080` ke jaringan yang tidak tepercaya. HTTPS intranet wajib disediakan oleh reverse proxy atau terminasi TLS di depan Nginx.
+
 ## Kepatuhan & Batasan
 
 - ** robots.txt** — Diperiksa sebelum setiap fetch.

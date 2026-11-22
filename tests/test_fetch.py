@@ -1,5 +1,7 @@
 """Regresi batas URL dan pemilihan fallback browser tanpa akses jaringan."""
 
+from concurrent.futures import ThreadPoolExecutor
+import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -8,6 +10,7 @@ import pytest
 import config
 from agent.planner import AgentRunState
 from tools import fetch
+
 
 
 @pytest.fixture
@@ -81,3 +84,89 @@ def test_long_html_skips_browser(fetcher, monkeypatch):
     monkeypatch.setattr(fetch, "_get_browser", browser)
     assert "artikel" in fetch.browse_tool.invoke({"url": "https://example.com/a"})
     browser.assert_not_called()
+
+
+def test_browser_access_and_cleanup_are_serialized(fetcher, monkeypatch):
+    monkeypatch.setattr(config, "BROWSER_FALLBACK_ENABLED", True)
+    fetcher.fetch.return_value = (200, "text/html", "<body>short</body>")
+    monkeypatch.setattr(fetch.time, "sleep", lambda _: None)
+
+    active = 0
+    maximum_active = 0
+    active_lock = threading.Lock()
+    first_get_started = threading.Event()
+    release_first_get = threading.Event()
+    first_body_started = threading.Event()
+    release_first_body = threading.Event()
+    second_get_started = threading.Event()
+    cleanup_started = threading.Event()
+
+    def enter_browser():
+        nonlocal active, maximum_active
+        with active_lock:
+            active += 1
+            maximum_active = max(maximum_active, active)
+
+    def leave_browser():
+        nonlocal active
+        with active_lock:
+            active -= 1
+
+    def get(url):
+        enter_browser()
+        try:
+            if url.endswith("/first"):
+                first_get_started.set()
+                release_first_get.wait(timeout=2)
+            else:
+                second_get_started.set()
+        finally:
+            leave_browser()
+
+    def read_body(_by, _name):
+        enter_browser()
+        try:
+            if not first_body_started.is_set():
+                first_body_started.set()
+                release_first_body.wait(timeout=2)
+            return SimpleNamespace(text="Browser article")
+        finally:
+            leave_browser()
+    def quit_browser():
+        cleanup_started.set()
+        enter_browser()
+        leave_browser()
+
+    driver = Mock()
+    driver.get.side_effect = get
+    driver.find_element.side_effect = read_body
+    driver.quit.side_effect = quit_browser
+    fetch._browser_instance = driver
+    monkeypatch.setattr(fetch, "_get_browser", lambda: driver)
+
+    def browse(url):
+        with AgentRunState():
+            return fetch.browse_tool.invoke({"url": url})
+
+    try:
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            first = executor.submit(browse, "https://example.com/first")
+            assert first_get_started.wait(timeout=1)
+            cleanup = executor.submit(fetch.close_browser)
+            release_first_get.set()
+            assert first_body_started.wait(timeout=1)
+            second = executor.submit(browse, "https://example.com/second")
+            threading.Event().wait(0.05)
+            assert not second_get_started.is_set()
+            assert not cleanup_started.is_set()
+            release_first_body.set()
+            assert "Browser article" in first.result(timeout=2)
+            assert "Browser article" in second.result(timeout=2)
+            cleanup.result(timeout=2)
+
+        assert maximum_active == 1
+        driver.quit.assert_called_once_with()
+    finally:
+        release_first_body.set()
+        release_first_get.set()
+        fetch._browser_instance = None

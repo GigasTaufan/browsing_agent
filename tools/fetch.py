@@ -6,6 +6,8 @@ Mematuhi robots.txt, rate limit, dan guardrails.
 """
 
 import time
+import threading
+
 from typing import Optional
 
 import httpx
@@ -29,6 +31,7 @@ from tools.extract import extract_page
 
 # --- Singleton Browser Session ---
 _browser_instance: Optional[webdriver.Chrome] = None
+_browser_lock = threading.Lock()
 
 
 def _get_browser() -> webdriver.Chrome:
@@ -50,10 +53,11 @@ def _get_browser() -> webdriver.Chrome:
 def close_browser() -> None:
     """Menutup instance browser. Panggil saat program exit."""
     global _browser_instance
-    if _browser_instance is not None:
-        print("[Browser Fetcher]: Menutup Chrome...")
-        _browser_instance.quit()
-        _browser_instance = None
+    with _browser_lock:
+        if _browser_instance is not None:
+            print("[Browser Fetcher]: Menutup Chrome...")
+            _browser_instance.quit()
+            _browser_instance = None
 
 
 # --- HTTP Fetcher ---
@@ -204,12 +208,13 @@ def browse_tool(url: str) -> str:
     if config.BROWSER_FALLBACK_ENABLED and _is_js_heavy(content_type, html):
         print("[Browser Tool]: Teks halaman terlalu pendek, mencoba fallback via Selenium...")
         try:
-            driver = _get_browser()
-            driver.get(url)
-            time.sleep(2)
-            body_element = driver.find_element(By.TAG_NAME, 'body')
-            body_text = body_element.text
-            cleaned = " ".join(body_text.split())
+            with _browser_lock:
+                driver = _get_browser()
+                driver.get(url)
+                time.sleep(2)
+                body_element = driver.find_element(By.TAG_NAME, 'body')
+                body_text = body_element.text
+                cleaned = " ".join(body_text.split())
 
             # Fallback HTML: tidak ada raw HTML dari Selenium, simulasi body
             fallback_html = f"<html><body>{body_text}</body></html>"

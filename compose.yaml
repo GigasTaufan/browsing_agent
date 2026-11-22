@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    networks:
+      - backend
+      - egress
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      UI_API_KEY: ${UI_API_KEY:?Set UI_API_KEY in .env (copy .env.example first)}
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro,Z
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro,Z
+    networks:
+      - backend
+
+networks:
+  backend:
+    internal: true
+  egress: {}

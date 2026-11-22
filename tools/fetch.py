@@ -5,8 +5,9 @@ Browser session di-reuse (tidak launch per URL).
 Mematuhi robots.txt, rate limit, dan guardrails.
 """
 
-import time
+import os
 import threading
+import time
 
 from typing import Optional
 
@@ -40,12 +41,19 @@ def _get_browser() -> webdriver.Chrome:
     if _browser_instance is None:
         print("[Browser Fetcher]: Meluncurkan Chrome (headless)...")
         chrome_options = Options()
+        chrome_binary = os.environ.get("CHROME_BIN")
+        if chrome_binary:
+            chrome_options.binary_location = chrome_binary
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument(f"--user-agent={config.USER_AGENT}")
 
-        service = Service(ChromeDriverManager().install())
+        chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+        if chromedriver_path:
+            service = Service(chromedriver_path)
+        else:
+            service = Service(ChromeDriverManager().install())
         _browser_instance = webdriver.Chrome(service=service, options=chrome_options)
     return _browser_instance
 

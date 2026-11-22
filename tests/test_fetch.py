@@ -170,3 +170,24 @@ def test_browser_access_and_cleanup_are_serialized(fetcher, monkeypatch):
         release_first_body.set()
         release_first_get.set()
         fetch._browser_instance = None
+
+def test_browser_uses_preinstalled_chromedriver_without_download(monkeypatch):
+    monkeypatch.setenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+    monkeypatch.setenv("CHROME_BIN", "/usr/bin/chromium")
+    monkeypatch.setattr(fetch, "_browser_instance", None)
+    driver = Mock()
+    service = Mock()
+    service_factory = Mock(return_value=service)
+    chrome_factory = Mock(return_value=driver)
+    driver_manager = Mock()
+    driver_manager.return_value.install.return_value = "/downloaded/chromedriver"
+    monkeypatch.setattr(fetch, "Service", service_factory)
+    monkeypatch.setattr(fetch.webdriver, "Chrome", chrome_factory)
+    monkeypatch.setattr(fetch, "ChromeDriverManager", driver_manager)
+
+    assert fetch._get_browser() is driver
+
+    service_factory.assert_called_once_with("/usr/bin/chromedriver")
+    assert chrome_factory.call_args.kwargs["service"] is service
+    assert chrome_factory.call_args.kwargs["options"].binary_location == "/usr/bin/chromium"
+    driver_manager.assert_not_called()

@@ -7,11 +7,12 @@ Pluggable: arsitektur sudah siap untuk menambah provider lain.
 import re
 import time
 from langchain.tools import tool
-from langchain_community.tools import DuckDuckGoSearchResults
-from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
+from ddgs import DDGS
 
 import config
 from agent.planner import check_and_increment, ToolLimitReached
+
+
 
 
 # --- Search Provider Abstraction ---
@@ -97,17 +98,24 @@ def search_tool(query: str) -> str:
 
     for attempt, backend in enumerate(backends, start=1):
         try:
-            api_wrapper = DuckDuckGoSearchAPIWrapper(backend=backend)
-            searcher = DuckDuckGoSearchResults(api_wrapper=api_wrapper)
-            raw_results = searcher.run(query)
+            ddgs_backend = "duckduckgo" if backend == "lite" else backend
+            with DDGS() as ddgs:
+                results = ddgs.text(
+                    query,
+                    backend=ddgs_backend,
+                    max_results=config.MAX_SEARCH_RESULTS,
+                )
 
-            # Abaikan placeholder "no result"
-            if raw_results and raw_results != "No good DuckDuckGo Search Result was found":
-                # Rank dan dedup hasil
+            if results:
+                raw_results = "\n".join(
+                    f"snippet: {result['body']}, title: {result['title']}, link: {result['href']}"
+                    for result in results
+                )
                 filtered = _rank_and_dedup(raw_results)
+                formatted = ", ".join(filtered.splitlines())
 
                 # Ekstraksi URL untuk log transparansi
-                links = re.findall(r'https?://[^\s,;"\')\]]+', filtered)
+                links = re.findall(r'https?://[^\s,;"\')\]]+', formatted)
 
                 if links:
                     print(f"[Search Tool]: Ditemukan {len(links)} sumber relevan (setelah ranking):")
@@ -116,14 +124,14 @@ def search_tool(query: str) -> str:
                         print(f"   {i}. {clean_link}")
 
                 print(f"[Search Tool]: Sukses mendapatkan hasil pencarian (backend={backend}).")
-                return filtered if filtered else "Tidak ada hasil pencarian."
+                return formatted if formatted else "Tidak ada hasil pencarian."
 
             # Hasil kosong — coba backend berikutnya
             print(f"[Search Tool]: Backend '{backend}' return kosong, coba fallback...")
 
         except Exception as e:
             last_error = e
-            print(f"[Search Tool]: Gagal dengan backend '{backend}' (attempt {attempt}/3): {e}")
+            print(f"[Search Tool]: Gagal melakukan pencarian dengan backend '{backend}' (attempt {attempt}/3): {e}")
             if attempt < len(backends):
                 wait = attempt  # 1s, 2s
                 time.sleep(wait)

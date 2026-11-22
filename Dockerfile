@@ -23,6 +23,7 @@ COPY api.py config.py main.py ./
 COPY agent ./agent
 COPY policy ./policy
 COPY tools ./tools
+COPY storage ./storage
 
 RUN useradd --create-home --uid 10001 appuser
 ENV HOME=/home/appuser

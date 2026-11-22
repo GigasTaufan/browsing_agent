@@ -134,7 +134,7 @@ curl --fail-with-body -X POST http://localhost:8080/api/v1/ask \
   -d '{"question":"Apa perkembangan terbaru energi surya?"}'
 ```
 
-Sukses menghasilkan JSON berisi `answer` dan `citations` (array citation dengan `id`, `url`, dan `snippet`). Key hilang/tidak sah menghasilkan HTTP `401`; pertanyaan kosong menghasilkan HTTP `422`. Respons kegagalan agent menggunakan HTTP `500` dengan envelope `{"error":{"code":"internal_error","message":"Request failed"}}`. Endpoint health publik Nginx tersedia pada `/healthz`.
+Sukses menghasilkan JSON berisi `answer` dan `citations` (array citation dengan `id`, `url`, dan `snippet`). Key hilang/tidak sah menghasilkan HTTP `401`; pertanyaan kosong menghasilkan HTTP `422`. Respons kegagalan agent menggunakan HTTP `500` dengan envelope `{"error":{"code":"internal_error","message":"Terjadi kesalahan internal."}}`. Endpoint health publik Nginx tersedia pada `/healthz`.
 
 Jangan gunakan kredensial provider nyata dalam pengujian. Tes unit API memakai agent stub dan tidak menghubungi provider.
 

@@ -60,6 +60,16 @@ def test_valid_caller_request_succeeds_through_nginx_with_stub_backend(tmp_path)
 import json
 
 class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != "/healthz":
+            self.send_error(404)
+            return
+        body = b"ok"
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         if self.path != "/api/v1/ask" or self.headers.get("Authorization") != "Bearer task5-caller-smoke-key":
             self.send_response(401)
@@ -140,6 +150,24 @@ HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
             time.sleep(0.1)
         nginx_logs = docker("logs", nginx_name, check=False).stderr
         assert response is not None and response.returncode == 0, f"Nginx did not become ready: {nginx_logs}"
+
+        deadline = time.monotonic() + 15
+        response = None
+        while time.monotonic() < deadline:
+            response = docker(
+                "exec",
+                nginx_name,
+                "wget",
+                "-qO-",
+                "http://api:8000/healthz",
+                check=False,
+            )
+            if response.returncode == 0 and response.stdout == "ok":
+                break
+            time.sleep(0.1)
+        assert response is not None and response.returncode == 0 and response.stdout == "ok", (
+            "API stub did not become ready before the ingress request"
+        )
 
         result = docker(
             "exec",

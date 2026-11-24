@@ -9,6 +9,7 @@ import time
 from typing import Protocol
 
 import config
+import oplog
 
 
 class RateLimiterProtocol(Protocol):
@@ -46,7 +47,7 @@ class RedisRateLimiter:
             if count == 1:
                 await self._client.expire(bucket, self._window_seconds * 2)
         except Exception as e:
-            print(f"[Rate Limit]: Redis error ({e}). Fail-open, request diizinkan.")
+            oplog.log_event("rate_limit.redis_error", error=str(e), fail_open=True)
             return True
 
         return count <= self._limit

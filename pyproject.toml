@@ -8,8 +8,6 @@ dependencies = [
     "langchain>=1.0.0",
     "langchain-openai>=1.0.0",
     "langchain-core>=1.0.0",
-    "langchain-text-splitters>=1.0.0",
-    "langchainhub>=0.1.15",
     "ddgs>=9.16.1",
     "selenium>=4.21.0",
     "webdriver-manager>=4.0.1",
@@ -27,7 +25,9 @@ dependencies = [
 [dependency-groups]
 dev = [
     "mypy>=2.4.1",
+    "pip-audit>=2.10.1",
     "pytest>=8.2.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.17.6",
 ]
 
@@ -55,3 +55,18 @@ module = [
     "langchain_openai.*",
 ]
 ignore_missing_imports = true
+[tool.coverage.run]
+source = [
+    "main",
+    "api",
+    "config",
+    "agent",
+    "tools",
+    "policy",
+    "storage",
+]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

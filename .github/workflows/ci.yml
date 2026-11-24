@@ -29,8 +29,27 @@ jobs:
       - name: Type check (mypy)
         run: uv run --no-sync mypy .
 
-      - name: Tests (pytest)
-        run: uv run --no-sync python -m pytest tests/
+      - name: Tests (pytest with coverage)
+        run: uv run --no-sync python -m pytest tests/ --cov --cov-report=term-missing
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies (locked)
+        run: uv sync --locked
+
+      # Advisory baru upstream tidak boleh memblokir merge; review secara berkala.
+      - name: Dependency audit (pip-audit)
+        run: uv run --no-sync pip-audit --skip-editable
+        continue-on-error: true
 
   docker:
     runs-on: ubuntu-latest

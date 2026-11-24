@@ -29,3 +29,4 @@ build/
 
 # Jupyter
 *.ipynb
+.coverage

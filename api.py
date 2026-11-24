@@ -1,8 +1,10 @@
 """Authenticated FastAPI interface for the browsing agent."""
 
+import hashlib
 import hmac
 import os
 import threading
+import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
@@ -13,6 +15,7 @@ from pydantic import BaseModel, field_validator
 from starlette.concurrency import run_in_threadpool
 
 import config
+import oplog
 from main import build_system_prompt, define_agent, load_llm, run_agent, setup_tracing
 from policy.inbound_rate_limit import RateLimiterProtocol, build_rate_limiter
 from tools.fetch import browse_tool, fetcher_cleanup
@@ -151,9 +154,12 @@ def create_app(
         payload: AskRequest,
         authorization: str | None = Header(default=None),
     ) -> AskResponse | JSONResponse:
+        started = time.monotonic()
         api_key = _authenticate(authorization)
+        key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:12]
 
         if len(payload.question) > config.MAX_QUESTION_LENGTH:
+            oplog.log_event("api.ask_rejected", reason="overlong", key_hash=key_hash)
             return JSONResponse(
                 status_code=422,
                 content=_error(
@@ -164,6 +170,7 @@ def create_app(
 
         limiter = app.state.rate_limiter
         if limiter is not None and not await limiter.check(api_key):
+            oplog.log_event("api.ask_rejected", reason="rate_limited", key_hash=key_hash)
             return JSONResponse(
                 status_code=429,
                 content=_error(
@@ -173,6 +180,7 @@ def create_app(
 
         semaphore = app.state.concurrency_semaphore
         if not semaphore.acquire(blocking=False):
+            oplog.log_event("api.ask_rejected", reason="server_busy", key_hash=key_hash)
             return JSONResponse(
                 status_code=429,
                 content=_error("server_busy", "Server sedang sibuk. Coba lagi nanti."),
@@ -190,6 +198,12 @@ def create_app(
             )
             for index, item in enumerate(result.citations, start=1)
         ]
+        oplog.log_event(
+            "api.ask_ok",
+            key_hash=key_hash,
+            duration_ms=round((time.monotonic() - started) * 1000),
+            citations=len(citations),
+        )
         return AskResponse(answer=result.answer, citations=citations)
 
     return app

@@ -90,7 +90,7 @@ uv run python -m pytest tests/
 - **Bahasa**: Komentar, docstring, dan string UI pakai Bahasa Indonesia.
 - **Penamaan**: `snake_case` untuk fungsi dan variabel.
 - **Tools**: Didekorasi `@tool` LangChain; deskripsi jelas untuk LLM.
-- **Error handling**: `try/except` sederhana dengan `print` ke stdout; tanpa logging framework.
+- **Error handling**: `try/except` sederhana; UX via `print` ke stdout, log operasional via `oplog.log_event` (JSON lines ke stderr).
 - **Konfigurasi**: Terpusat di `config.py` + `.env`; tidak ada magic numbers di modul lain.
 - **Import grouping**: stdlib → pihak ketiga → modul lokal; ruff (`I`) menegakkan urutan ini.
 - **Quality gate** (wajib hijau sebelum commit):

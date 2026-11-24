@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 
-COPY api.py config.py main.py ./
+COPY api.py config.py main.py oplog.py ./
 COPY agent ./agent
 COPY policy ./policy
 COPY tools ./tools

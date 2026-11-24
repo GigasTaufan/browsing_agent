@@ -16,6 +16,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 import config
@@ -224,8 +226,10 @@ def browse_tool(url: str) -> str:
             with _browser_lock:
                 driver = _get_browser()
                 driver.get(url)
-                time.sleep(2)
-                body_element = driver.find_element(By.TAG_NAME, "body")
+                # Explicit wait: deteksi <body> hadir, maksimal 10 detik.
+                body_element = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
                 body_text = body_element.text
                 cleaned = " ".join(body_text.split())
 

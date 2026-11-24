@@ -121,6 +121,12 @@ uv run python -m pytest tests/
 | `AZURE_OPENAI_API_KEY` | — (fallback Azure) | API Key Azure OpenAI |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o-mini` | Nama deployment model Azure |
 | `AZURE_OPENAI_PREVIEW_API_VERSION` | — (fallback Azure) | Versi API preview |
+| `MLFLOW_TRACING_ENABLED` | `true` | Aktifkan MLflow GenAI tracing untuk LangChain |
+| `MLFLOW_TRACKING_URI` | `http://10.60.144.48:5000` | URI server MLflow untuk tracing |
+| `MLFLOW_EXPERIMENT_NAME` | `browsing-agent-dev` | Nama experiment MLflow |
+| `SEARCH_PROVIDER` | `duckduckgo` | Provider pencarian: `duckduckgo` \| `searxng` |
+| `SEARXNG_BASE_URL` | `http://searxng:8080` (di Compose) | Base URL SearXNG JSON API |
+| `SEARCH_FALLBACK_ENABLED` | `true` | Fallback ke provider lain jika provider utama gagal |
 | `MAX_TOOL_CALLS` | `5` | Batas pemanggilan tool per query |
 | `MAX_URLS_PER_QUERY` | `3` | Batas URL unik yang dicoba di-fetch per query; gagal tetap dihitung, URL yang sama tidak menambah kuota |
 | `MAX_SEARCH_RESULTS` | `5` | Maksimum hasil search yang ditampilkan |

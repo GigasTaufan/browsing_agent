@@ -81,5 +81,10 @@ MLFLOW_TRACING_ENABLED = _env_bool("MLFLOW_TRACING_ENABLED", True)
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://10.60.144.48:5000")
 MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "browsing-agent-dev")
 
+# --- Search Provider ---
+SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "duckduckgo").strip().lower()
+SEARXNG_BASE_URL = os.getenv("SEARXNG_BASE_URL")
+SEARCH_FALLBACK_ENABLED = _env_bool("SEARCH_FALLBACK_ENABLED", True)
+
 # --- Content Extraction ---
 CHUNK_SIZE = _env_int("CHUNK_SIZE", 2000)

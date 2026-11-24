@@ -1,7 +1,7 @@
 [project]
 name = "browsing-agent"
 version = "1.1.0"
-description = "Agen browsing web dengan Azure OpenAI dan sumber jawaban."
+description = "Agen browsing web dengan LLM ModelHub dan sumber jawaban."
 requires-python = ">=3.14"
 dependencies = [
     "python-dotenv>=1.0.0",

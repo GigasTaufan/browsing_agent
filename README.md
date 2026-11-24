@@ -143,7 +143,7 @@ uv run python -m pytest tests/
 
 Untuk menjalankan contoh penggunaan API ModelHub secara langsung:
 ```bash
-uv run docs/modelhub.py
+uv run scripts/modelhub.py
 ```
 
 ## API melalui Docker Compose

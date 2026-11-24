@@ -8,6 +8,7 @@ import argparse
 import os
 import socket
 import sys
+import tomllib
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -20,6 +21,15 @@ from agent.planner import AgentRunResult, AgentRunState
 from policy.guardrails import is_query_blocked
 from tools.fetch import browse_tool, fetcher_cleanup
 from tools.search import search_tool
+
+
+def _get_version() -> str:
+    """Baca versi dari pyproject.toml; fallback bila file tidak tersedia."""
+    try:
+        with open("pyproject.toml", "rb") as f:
+            return str(tomllib.load(f)["project"]["version"])
+    except OSError, KeyError, tomllib.TOMLDecodeError:
+        return "unknown"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -41,7 +51,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.0",
+        version=f"%(prog)s {_get_version()}",
     )
     return parser.parse_args()
 

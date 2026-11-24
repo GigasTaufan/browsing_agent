@@ -44,6 +44,30 @@ browsing_agent/
 6. Konten diekstrak secara terstruktur (judul, headings, teks) dan disimpan sebagai evidence.
 7. Agen menyusun jawaban akhir dengan menampilkan citations (sumber URL).
 
+### Flow Aplikasi
+
+```mermaid
+flowchart TD
+    A["Pertanyaan pengguna<br/>(CLI argumen / interaktif / API)"] --> B{"Query lolos<br/>guardrails?"}
+    B -->|Diblokir| C["Kembalikan alasan<br/>penolakan"]
+    B -->|Lolos| D["Agent loop (LangChain)<br/>LLM: Azure OpenAI / ModelHub"]
+    D --> E{"Kuota tool call<br/>atau URL habis?"}
+    E -->|Ya| K["Susun jawaban akhir"]
+    E -->|Tidak| F{"LLM memilih tool"}
+    F -->|search_tool| G["DuckDuckGo search<br/>rank + dedup hasil"]
+    F -->|browse_tool| H{"URL lolos guardrails,<br/>robots.txt, rate limit?"}
+    H -->|Tidak| D
+    H -->|Ya| I["Fetch via httpx<br/>(HTTP-first)"]
+    I --> J{"Halaman JS-heavy?"}
+    J -->|Ya| J2["Fallback Selenium<br/>(headless Chrome)"]
+    J2 --> L["Extract konten<br/>(trafilatura / BeautifulSoup)"]
+    J -->|Tidak| L
+    L --> M["Simpan ke EvidenceStore<br/>dedup URL + content hash"]
+    G --> D
+    M --> D
+    K --> N["Output: jawaban + citations<br/>(CLI / JSON)"]
+```
+
 ## Instalasi
 
 **Prasyarat:** [uv](https://docs.astral.sh/uv/getting-started/installation/). Python 3.14+; uv dapat mengunduh Python jika belum tersedia.

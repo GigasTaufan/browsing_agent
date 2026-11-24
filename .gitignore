@@ -6,6 +6,8 @@
 .idea/
 .superpowers/
 docs/superpowers/
+.codeartsdoer/
+.arts/
 
 # Python
 .venv/

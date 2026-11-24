@@ -1,0 +1,93 @@
+# Runbook Operasional — browsing_agent
+
+Panduan deploy dan pemulihan untuk operator. Bahasa: Indonesia.
+
+## 1. Topologi Deploy
+
+```
+docker compose up -d --build
+```
+
+| Service | Image | Jaringan | Fungsi |
+|---------|-------|----------|--------|
+| `api` | build lokal (Dockerfile) | backend, egress | FastAPI agent (port 8000, internal) |
+| `nginx` | nginx:alpine + template | backend, egress | Ingress :8080 — UI statis, `/api/`, `/ui-api/` |
+| `searxng` | searxng/searxng | egress | Search engine JSON API (metasearch Google/Bing/dll) |
+| `redis` | redis:7-alpine | backend | Rate limit per API key (fail-open) |
+
+- Port publik hanya **:8080 (nginx)**. Port 8000 tidak dipublish (by design).
+- `egress` = jaringan dengan akses internet; `backend` = internal-only.
+- Nginx menyuntik `UI_API_KEY` ke header `/ui-api/*` (ADR-0003) — key tidak pernah ke browser.
+
+## 2. Prosedur Deploy / Upgrade
+
+1. `git pull` di mesin deploy.
+2. `docker compose up -d --build` (api di-rebuild; nginx re-resolve otomatis ≤10s).
+3. Verifikasi: `curl http://localhost:8080/healthz` → `ok`; `docker compose ps` semua Up.
+4. Smoke: POST satu pertanyaan via `/ui-api/v1/ask` → jawaban + citations.
+
+Rollback: `git checkout <tag sebelumnya>` lalu ulang langkah 2.
+
+## 3. Kredensial & Environment
+
+Wajib di `.env` (gitignored): `MODELHUB_API_KEY`, `API_ALLOWED_KEYS`, `UI_API_KEY`.
+Variabel operasional punya default — lihat tabel di `README.md`.
+
+Rotasi `UI_API_KEY`: ganti nilai di `.env` → `docker compose up -d --force-recreate nginx`.
+Tidak perlu redeploy frontend (key tidak pernah ada di aset statis).
+
+## 4. Observability
+
+- **Health**: `GET /healthz` (nginx, selalu 200 jika nginx hidup); `docker compose ps`.
+- **Tracing**: MLflow di `MLFLOW_TRACKING_URI` (default `http://10.60.144.48:5000`),
+  experiment `browsing-agent-dev`. Setiap run agent menghasilkan trace; span `search_tool`
+  memiliki atribut `search.provider` dan `search.fallback_used`.
+- **Log operasional**: stderr container api berisi JSON lines dari `oplog`
+  (`api.ask_ok`, `api.ask_rejected`, `rate_limit.redis_error`):
+  `docker compose logs api | grep '"event"'`.
+- **Log aplikasi**: `docker compose logs api` (UX print + uvicorn access log).
+
+## 5. Kegagalan Umum & Pemulihan
+
+### DuckDuckGo diblokir DNS (filter "Trust Positive")
+Gejala: search gagal dengan TLS/hostname error; log `[Search Tool]` error.
+Aksi: set `SEARCH_PROVIDER=searxng` di `.env` (atau biarkan fallback aktif —
+`SEARCH_FALLBACK_ENABLED=true` default). Verifikasi SearXNG:
+`docker compose exec api curl -s "http://searxng:8080/search?q=test&format=json" | head -c 200`.
+
+### Redis down
+Gejala: `rate_limit.redis_error` di log; API tetap melayani (fail-open, ADR-0005).
+Aksi: `docker compose restart redis`; jika Redis sering down, rate limit tidak aktif —
+pertimbangkan monitoring.
+
+### Nginx 502 setelah rebuild api
+Gejala: 502 beberapa detik setelah `docker compose up -d --build api`.
+Normal: resolver Docker DNS re-resolve ≤10s (valid=10s) — tunggu saja.
+Jika 502 persisten: `docker compose restart nginx`, cek `docker compose logs nginx`.
+
+### MLflow unreachable
+Gejala: log `[Tracing]` error saat startup; traces tidak muncul.
+Aksi: tracing bersifat non-fatal — agent tetap jalan. Cek konektivitas
+`MLFLOW_TRACKING_URI`; atau set `MLFLOW_TRACING_ENABLED=false` untuk mematikan.
+
+### 429 dari API
+- `rate_limited`: key tersebut mencapai `RATE_LIMIT_REQUESTS_PER_MINUTE` (default 10/menit) — naikkan limit di `.env` jika perlu.
+- `server_busy`: konkurensi penuh (`MAX_CONCURRENT_AGENT_RUNS`, default 4) — naikkan hanya jika resource memadai (setiap run memakai Chrome/LLM call).
+
+### Selenium/Chrome di container
+Gejala: fallback browser gagal; `[Browser Fetcher]` error.
+Aksi: pastikan image api di-build dari Dockerfile terbaru (chromium + chromedriver
+pre-installed). Fallback browser hanya untuk halaman JS-heavy — mayoritas fetch via HTTP.
+
+### robots.txt error
+Dikendalikan `ROBOTS_FAIL_OPEN` (ADR-0004): `true` (default) = izinkan saat robots.txt
+gagal di-fetch (non-404); `false` = tolak. 404 selalu diizinkan (RFC 9309).
+
+## 6. Laporan Kualitas
+
+Quality gate wajib hijau sebelum deploy:
+```
+uv run --no-sync ruff check . && uv run --no-sync ruff format --check . \
+  && uv run --no-sync mypy . && uv run --no-sync python -m pytest tests/ -q
+```
+CI (GitHub Actions / GitLab CI) menjalankan hal yang sama pada setiap push.

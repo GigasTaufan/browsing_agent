@@ -159,9 +159,19 @@ Keputusan arsitektur signifikan didokumentasi di `docs/adr/`:
 - ADR-0004 — kebijakan fail-open/closed robots.txt
 - ADR-0005 — rate limit API per key via Redis (fail-open)
 
+# Release Process
+
+1. Pastikan quality gate hijau dan `CHANGELOG.md` sudah mencantumkan perubahan rilis.
+2. Bump `version` di `pyproject.toml` (semver).
+3. Merge `development` → `main`.
+4. Tag annotated di `main`: `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`.
+
+Hook lokal (opsional tapi disarankan): `uv run pre-commit install` — menjalankan
+ruff check/format + hygiene check pada setiap commit.
+
 # Upgrade Roadmap
 
 Status dan rencana ada di `docs/plan_upgrade.md`. Fase 1–11 (MVP modular) selesai;
-ADLC M1 (config robustness, ruff+mypy, CI) dan M2 (rate limit Redis, robots policy,
-docs/ADR, nginx resolver) selesai. Lanjutan: coverage/E2E, frontend CI, deps cleanup,
-structured logging, release hygiene, runbook, GitLab CI.
+ADLC M1 (config robustness, ruff+mypy, CI), M2 (rate limit Redis, robots policy,
+docs/ADR, nginx resolver), M3 (coverage/E2E, frontend CI, deps cleanup, structured
+logging), dan M4 (release hygiene) selesai. Lanjutan: runbook, GitLab CI, backlog.

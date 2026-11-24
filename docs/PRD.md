@@ -1,9 +1,9 @@
 # Product Requirements Document (PRD) — Browsing Agent
 
-**Versi**: 1.0-draft  
-**Tanggal**: 2026-05-26  
-**Status**: MVP → General Browsing Information Agent (11 Fase)  
-**Bahasa**: Indonesia  
+**Versi**: 1.0-draft
+**Tanggal**: 2026-05-26
+**Status**: MVP → General Browsing Information Agent (11 Fase)
+**Bahasa**: Indonesia
 
 ---
 

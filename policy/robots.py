@@ -4,12 +4,12 @@ Meng-cache robots.txt per domain untuk mencegah fetch ulang.
 """
 
 import time
-from urllib.parse import urlparse, urljoin
-from urllib.robotparser import RobotFileParser
+import urllib.error
 import urllib.request
+from urllib.parse import urljoin, urlparse
+from urllib.robotparser import RobotFileParser
 
 import config
-
 
 # Cache robots.txt parser per domain: {domain: RobotFileParser}
 _robots_cache: dict[str, RobotFileParser] = {}
@@ -42,10 +42,16 @@ def _fetch_robots_txt(robots_url: str) -> RobotFileParser:
             # Parse langsung dari bytes response
             rp.parse(response.read().decode("utf-8", errors="replace").splitlines())
     except Exception as e:
-        # Jika gagal ambil robots.txt (404, timeout, dll), anggap semua boleh
-        print(f"[Robots Policy]: Gagal mengambil {robots_url} ({e}). Asumsikan diizinkan.")
-        # Allow all fallback
-        rp.allow_all = True
+        # 404 = robots.txt tidak ada -> RFC 9309: semua diizinkan.
+        # Error lain (timeout, 5xx, DNS): ikut kebijakan ROBOTS_FAIL_OPEN.
+        is_404 = isinstance(e, urllib.error.HTTPError) and e.code == 404
+        allow = is_404 or config.ROBOTS_FAIL_OPEN
+        verdict = "Diizinkan" if allow else "Ditolak"
+        print(f"[Robots Policy]: Gagal mengambil {robots_url} ({e}). {verdict}.")
+        if allow:
+            rp.allow_all = True  # type: ignore[attr-defined]  # atribut runtime stdlib
+        else:
+            rp.disallow_all = True  # type: ignore[attr-defined]  # atribut runtime stdlib
 
     return rp
 
@@ -61,10 +67,7 @@ def get_robots_parser(target_url: str) -> RobotFileParser:
     now = time.time()
 
     # Cache miss atau cache expired
-    if (
-        domain not in _robots_cache
-        or (now - _cache_timestamp.get(domain, 0)) > _CACHE_TTL_SECONDS
-    ):
+    if domain not in _robots_cache or (now - _cache_timestamp.get(domain, 0)) > _CACHE_TTL_SECONDS:
         robots_url = _get_robots_url(target_url)
         _robots_cache[domain] = _fetch_robots_txt(robots_url)
         _cache_timestamp[domain] = now
@@ -72,7 +75,7 @@ def get_robots_parser(target_url: str) -> RobotFileParser:
     return _robots_cache[domain]
 
 
-def is_url_allowed(target_url: str, user_agent: str = None) -> bool:
+def is_url_allowed(target_url: str, user_agent: str | None = None) -> bool:
     """
     Cek apakah URL diizinkan oleh robots.txt domain-nya.
     Meng-handle edge case: jika robots.txt tidak bisa di-fetch, asumsikan diizinkan.
@@ -91,7 +94,7 @@ def is_url_allowed(target_url: str, user_agent: str = None) -> bool:
         return rp.can_fetch(ua, target_url)
     except Exception as e:
         print(f"[Robots Policy]: Error parsing robots.txt untuk {target_url}: {e}")
-        return True  # Fail-open: izinkan jika parser error
+        return config.ROBOTS_FAIL_OPEN  # Fail-open default: izinkan jika parser error
 
 
 def clear_robots_cache() -> None:

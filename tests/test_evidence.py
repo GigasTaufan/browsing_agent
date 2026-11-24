@@ -7,7 +7,7 @@ from storage.evidence import EvidenceStore
 from tools.extract import ExtractedPage
 
 
-def make_extracted(url: str, text: str, title: str = None) -> ExtractedPage:
+def make_extracted(url: str, text: str, title: str | None = None) -> ExtractedPage:
     """Helper untuk membuat ExtractedPage."""
     return ExtractedPage(
         url=url,

@@ -4,6 +4,11 @@
 # IDEs
 .vscode/
 .idea/
+.superpowers/
+docs/superpowers/
+.codeartsdoer/
+.arts/
+.ruff_cache/
 
 # Python
 .venv/
@@ -25,3 +30,4 @@ build/
 
 # Jupyter
 *.ipynb
+.coverage

@@ -3,17 +3,17 @@ Ekstraksi konten terstruktur dari halaman web.
 Menggunakan trafilatura untuk main text dan BeautifulSoup untuk metadata.
 """
 
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 from urllib.parse import urljoin
 
 try:
     import trafilatura
+
     TRAFILATURA_AVAILABLE = True
 except ImportError:
     TRAFILATURA_AVAILABLE = False
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from pydantic import BaseModel
 
 import config
@@ -23,18 +23,29 @@ class ExtractedPage(BaseModel):
     """
     Struktur data hasil ekstraksi konten dari halaman web.
     """
+
     url: str
-    title: Optional[str] = None
-    canonical_url: Optional[str] = None
+    title: str | None = None
+    canonical_url: str | None = None
     main_text: str = ""
-    headings: List[str] = []
-    links: List[str] = []
-    text_chunks: List[str] = []
+    headings: list[str] = []
+    links: list[str] = []
+    text_chunks: list[str] = []
     fetched_at: str = ""
     status_code: int = 200
 
 
-def _extract_with_bs4(soup: BeautifulSoup, url: str) -> tuple[str, str, List[str], List[str]]:
+def _get_str_attr(tag: Tag, name: str) -> str | None:
+    """Ambil atribut tag sebagai string (abaikan nilai berupa list)."""
+    value = tag.get(name)
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _extract_with_bs4(
+    soup: BeautifulSoup, url: str
+) -> tuple[str, str | None, list[str], list[str]]:
     """
     Ekstraksi fallback menggunakan BeautifulSoup.
     Returns: (main_text, title, headings_list, links_list)
@@ -49,7 +60,7 @@ def _extract_with_bs4(soup: BeautifulSoup, url: str) -> tuple[str, str, List[str
     canonical = None
     canonical_tag = soup.find("link", rel="canonical")
     if canonical_tag:
-        canonical = canonical_tag.get("href")
+        canonical = _get_str_attr(canonical_tag, "href")
         if canonical and canonical.startswith("/"):
             canonical = urljoin(url, canonical)
 
@@ -64,7 +75,7 @@ def _extract_with_bs4(soup: BeautifulSoup, url: str) -> tuple[str, str, List[str
     # Links
     links = []
     for a in soup.find_all("a", href=True):
-        href = a.get("href")
+        href = _get_str_attr(a, "href")
         if href:
             links.append(urljoin(url, href))
 
@@ -78,7 +89,7 @@ def _extract_with_bs4(soup: BeautifulSoup, url: str) -> tuple[str, str, List[str
     return main_text, title, headings, list(set(links))  # dedup links
 
 
-def _extract_with_trafilatura(html: str, url: str) -> Optional[str]:
+def _extract_with_trafilatura(html: str, url: str) -> str | None:
     """
     Ekstraksi main text menggunakan trafilatura.
     Returns main text atau None jika gagal / tidak tersedia.
@@ -99,7 +110,7 @@ def _extract_with_trafilatura(html: str, url: str) -> Optional[str]:
         return None
 
 
-def _chunk_text(text: str, chunk_size: int = None) -> List[str]:
+def _chunk_text(text: str, chunk_size: int | None = None) -> list[str]:
     """
     Memotong teks panjang menjadi chunk berukuran chunk_size (default dari config).
     Split pada spasi terdekat untuk tidak memotong kata.
@@ -149,7 +160,7 @@ def extract_page(html: str, url: str, status_code: int = 200) -> ExtractedPage:
     canonical_url = None
     canonical_tag = soup.find("link", rel="canonical")
     if canonical_tag:
-        canonical_url = canonical_tag.get("href")
+        canonical_url = _get_str_attr(canonical_tag, "href")
         if canonical_url and canonical_url.startswith("/"):
             canonical_url = urljoin(url, canonical_url)
 
@@ -164,6 +175,6 @@ def extract_page(html: str, url: str, status_code: int = 200) -> ExtractedPage:
         headings=headings,
         links=list(dict.fromkeys(links)),  # Deduplicate preserve order
         text_chunks=text_chunks,
-        fetched_at=datetime.now(timezone.utc).isoformat(),
+        fetched_at=datetime.now(UTC).isoformat(),
         status_code=status_code,
     )

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Asisten Riset</title>
+    <link rel="stylesheet" href="/style.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="masthead">
+        <p class="eyebrow">ASISTEN RISET</p>
+        <h1>Temukan jawaban yang berlandaskan sumber</h1>
+        <p class="intro">Ajukan pertanyaan. Asisten akan menelusuri web dan merangkum jawabannya beserta sumber.</p>
+      </header>
+
+      <section class="panel question-panel" aria-labelledby="question-heading">
+        <h2 id="question-heading">Apa yang ingin Anda ketahui?</h2>
+        <form id="question-form">
+          <label for="question">Pertanyaan</label>
+          <textarea id="question" name="question" rows="4" required placeholder="Contoh: Apa perkembangan terbaru energi surya?"></textarea>
+          <div class="form-footer">
+            <p class="privacy-note">Jawaban dapat memerlukan beberapa saat.</p>
+            <button id="submit-button" class="button button-primary" type="submit">Cari jawaban <span aria-hidden="true">→</span></button>
+          </div>
+        </form>
+      </section>
+
+      <p id="status" class="status" role="status" aria-live="polite" hidden></p>
+      <section id="error" class="error-panel" role="alert" hidden>
+        <h2>Terjadi kendala</h2>
+        <p id="error-message"></p>
+      </section>
+
+      <section id="result" class="panel result-panel" aria-labelledby="answer-heading" hidden>
+        <div class="result-heading">
+          <div>
+            <p class="eyebrow">RINGKASAN</p>
+            <h2 id="answer-heading">Jawaban</h2>
+          </div>
+          <button id="new-question" class="button button-secondary" type="button" disabled>Pertanyaan baru</button>
+        </div>
+        <p id="answer" class="answer"></p>
+        <div id="citations-section" class="citations-section" hidden>
+          <h3>Sumber</h3>
+          <ol id="citations" class="citations"></ol>
+        </div>
+      </section>
+      <footer>Informasi dirangkum dari sumber web. Periksa sumber untuk konteks selengkapnya.</footer>
+    </main>
+  </body>
+</html>

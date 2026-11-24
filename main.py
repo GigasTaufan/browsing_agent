@@ -5,18 +5,21 @@ Menampilkan citations di akhir jawaban.
 """
 
 import argparse
-import sys
 import os
-from dotenv import load_dotenv
+import socket
+import sys
+from datetime import datetime
+from urllib.parse import urlparse
 
-from langchain_openai import AzureChatOpenAI, ChatOpenAI
+from dotenv import load_dotenv
 from langchain.agents import create_agent
+from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
 import config
-from agent.planner import reset_run_state, get_run_state
+from agent.planner import AgentRunResult, AgentRunState
 from policy.guardrails import is_query_blocked
-from tools.search import search_tool
 from tools.fetch import browse_tool, fetcher_cleanup
+from tools.search import search_tool
 
 
 def _parse_args() -> argparse.Namespace:
@@ -30,7 +33,8 @@ def _parse_args() -> argparse.Namespace:
         help="Pertanyaan yang ingin dijawab (opsional — tanpa ini, mode interaktif).",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Tampilkan log detail dari setiap step.",
     )
@@ -43,8 +47,75 @@ def _parse_args() -> argparse.Namespace:
 
 
 # 1) Inisialisasi LLM
+def _mlflow_reachable(uri: str, timeout: float = 2.0) -> bool:
+    """Pre-flight TCP check dengan hard timeout agar tracing tidak menggantung startup."""
+    parsed = urlparse(uri)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def setup_tracing(verbose: bool = False):
+    """
+    Aktifkan MLflow GenAI tracing untuk LangChain (opsional, non-fatal).
+    Jika server MLflow tidak terjangkau, aplikasi tetap berjalan tanpa tracing.
+    """
+    if not config.MLFLOW_TRACING_ENABLED:
+        if verbose:
+            print("[Tracing]: MLflow tracing dinonaktifkan (MLFLOW_TRACING_ENABLED=false).")
+        return None
+
+    # Guard: server tidak terjangkau -> skip cepat, jangan sampai startup menggantung.
+    if not _mlflow_reachable(config.MLFLOW_TRACKING_URI):
+        print(
+            f"[Tracing]: Server MLflow tidak terjangkau ({config.MLFLOW_TRACKING_URI}). "
+            "Lanjutkan tanpa tracing."
+        )
+        return None
+
+    try:
+        import mlflow
+
+        # Hard timeout untuk semua REST call MLflow (default: tanpa timeout).
+        os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", "5")
+        mlflow.set_tracking_uri(config.MLFLOW_TRACKING_URI)
+        mlflow.set_experiment(config.MLFLOW_EXPERIMENT_NAME)
+        # Autolog LangChain: trace otomatis untuk LLM, tools, dan agent graph.
+        mlflow.langchain.autolog()
+        if verbose:
+            print(
+                f"[Tracing]: MLflow tracing aktif -> {config.MLFLOW_TRACKING_URI} "
+                f"(experiment: {config.MLFLOW_EXPERIMENT_NAME})"
+            )
+        return mlflow
+    except Exception as e:
+        print(f"[Tracing]: Gagal mengaktifkan MLflow tracing ({e}). Lanjut tanpa tracing.")
+        return None
+
+    try:
+        import mlflow
+
+        mlflow.set_tracking_uri(config.MLFLOW_TRACKING_URI)
+        mlflow.set_experiment(config.MLFLOW_EXPERIMENT_NAME)
+        # Autolog LangChain: trace otomatis untuk LLM, tools, dan agent graph.
+        mlflow.langchain.autolog()
+        if verbose:
+            print(
+                f"[Tracing]: MLflow tracing aktif -> {config.MLFLOW_TRACKING_URI} "
+                f"(experiment: {config.MLFLOW_EXPERIMENT_NAME})"
+            )
+        return mlflow
+    except Exception as e:
+        print(f"[Tracing]: Gagal mengaktifkan MLflow tracing ({e}). Lanjutkan tanpa tracing.")
+        return None
+
+
 def load_llm(verbose: bool = False):
-    """Memuat ModelHub jika API key tersedia, selain itu memakai Azure."""
+    """Memuat ModelHub (provider utama); fallback ke Azure OpenAI jika dikonfigurasi."""
     if config.MODELHUB_API_KEY:
         if not config.MODELHUB_BASE_URL or not config.MODELHUB_MODEL_NAME:
             raise ValueError(
@@ -66,23 +137,61 @@ def load_llm(verbose: bool = False):
             print("[Config]: LLM ModelHub loaded.")
         return llm
 
-    if verbose:
-        print("[Config]: Load LLM Azure ...")
-    llm = AzureChatOpenAI(
-        api_key=config.AZURE_OPENAI_API_KEY,
-        azure_deployment=config.AZURE_OPENAI_DEPLOYMENT_NAME,
-        api_version=config.AZURE_OPENAI_PREVIEW_API_VERSION,
-        temperature=0.7,
-        max_tokens=1500,
-        timeout=60,
-        max_retries=2,
+    # Fallback: Azure OpenAI hanya jika API key-nya dikonfigurasi.
+    if config.AZURE_OPENAI_API_KEY:
+        missing = [
+            name
+            for name, value in (
+                ("AZURE_OPENAI_ENDPOINT", config.AZURE_OPENAI_ENDPOINT),
+                ("AZURE_OPENAI_PREVIEW_API_VERSION", config.AZURE_OPENAI_PREVIEW_API_VERSION),
+            )
+            if not value
+        ]
+        if missing:
+            raise ValueError(
+                f"Kredensial Azure OpenAI tidak lengkap: {', '.join(missing)}. "
+                "Isi di file .env (lihat .env.example)."
+            )
+
+        if verbose:
+            print("[Config]: Load LLM Azure ...")
+        azure_llm = AzureChatOpenAI(
+            api_key=config.AZURE_OPENAI_API_KEY,
+            azure_endpoint=config.AZURE_OPENAI_ENDPOINT,
+            azure_deployment=config.AZURE_OPENAI_DEPLOYMENT_NAME,
+            api_version=config.AZURE_OPENAI_PREVIEW_API_VERSION,
+            temperature=0.7,
+            max_tokens=1500,
+            timeout=60,
+            max_retries=2,
+        )
+        if verbose:
+            print("[Config]: LLM Azure loaded.")
+        return azure_llm
+
+    raise ValueError(
+        "Tidak ada provider LLM terkonfigurasi. "
+        "Isi MODELHUB_API_KEY (provider utama) atau kredensial Azure OpenAI (fallback) "
+        "di file .env (lihat .env.example)."
     )
-    if verbose:
-        print("[Config]: LLM Azure loaded.")
-    return llm
 
 
 # 2) Definisikan Agent
+def build_system_prompt() -> str:
+    """System prompt dengan grounding tanggal dan prioritas bukti dari tools."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    return (
+        "You are an agent that can use tools to answer questions. "
+        "Use the provided tools (browse_tool & search_tool) to gather information "
+        "and provide accurate answers.\n"
+        f"Today's date is {today}.\n"
+        "Results from search_tool and browse_tool are real, current web evidence. "
+        "If they conflict with your prior knowledge, trust the tool results — "
+        "your training data may be outdated. "
+        "Ground your answer in the evidence and cite the source URLs."
+    )
+
+
 def define_agent(model, tools, system_prompt):
     """Membuat dan mengembalikan agent dengan model, tools, dan system prompt."""
     agent = create_agent(
@@ -94,43 +203,41 @@ def define_agent(model, tools, system_prompt):
 
 
 # 3) Jalankan Agent
-def run_agent(agent, question: str, verbose: bool = False):
-    """
-    Menjalankan agent untuk satu pertanyaan pengguna.
-    Reset state per-query, terapkan guardrails, outputkan citations.
-    """
-    reset_run_state()
+def run_agent(agent, question: str, verbose: bool = False) -> AgentRunResult:
+    """Run one isolated agent query and return its answer and evidence."""
+    with AgentRunState() as state:
+        blocked, reason = is_query_blocked(question)
+        if blocked:
+            return AgentRunResult(answer=reason, citations=[])
 
-    # Guardrail: cek query user
-    blocked, reason = is_query_blocked(question)
-    if blocked:
-        print("\n--- Jawaban Final Agent ---")
-        return reason
+        if verbose:
+            print(f"[Planner]: Menerima query: {question!r}")
+            print("[Planner]: Mengirim ke agent...")
 
-    if verbose:
-        print(f"[Planner]: Menerima query: {question!r}")
-        print("[Planner]: Mengirim ke agent...")
+        result = agent.invoke({"messages": [{"role": "user", "content": question}]})
 
-    result = agent.invoke({
-        "messages": [{"role": "user", "content": question}]
-    })
+        messages = result.get("messages", [])
+        final_msg = None
+        for message in reversed(messages):
+            role = getattr(message, "role", None) or getattr(message, "type", None)
+            if role in ("assistant", "ai"):
+                final_msg = message
+                break
 
-    messages = result.get("messages", [])
-    final_msg = None
-    for m in reversed(messages):
-        role = getattr(m, "role", None) or getattr(m, "type", None)
-        if role in ("assistant", "ai"):
-            final_msg = m
-            break
+        answer = final_msg.content if final_msg else result
+        return AgentRunResult(answer=str(answer), citations=list(state.evidence_store.items))
 
-    final_answer = final_msg.content if final_msg else result
 
-    # Tambahkan citations di akhir jawaban
-    state = get_run_state()
-    if state and state.evidence_store.items:
-        final_answer += state.evidence_store.get_citations_text()
-
-    return final_answer
+def _render_cli_result(result: AgentRunResult) -> str:
+    """Render structured evidence using the legacy CLI citation format."""
+    answer = result.answer
+    if result.citations:
+        citations = "\n".join(
+            f"{index}. [{item.title or item.canonical_url}]({item.canonical_url})"
+            for index, item in enumerate(result.citations, start=1)
+        )
+        answer += "\n\n---\nSumber:\n" + citations
+    return answer
 
 
 def main():
@@ -152,6 +259,9 @@ def main():
         print(f"[Config]: USER_AGENT = {config.USER_AGENT}")
         print(f"[Config]: BROWSER_FALLBACK = {config.BROWSER_FALLBACK_ENABLED}")
 
+    # 0) Aktifkan MLflow tracing (opsional)
+    setup_tracing(verbose=verbose)
+
     # 1) Load LLM
     llm = load_llm(verbose=verbose)
 
@@ -159,11 +269,7 @@ def main():
     tools = [browse_tool, search_tool]
 
     # 3) Create Agent
-    system_prompt = (
-        "You are an agent that can use tools to answer questions. "
-        "Use the provided tools (browse_tool & search_tool) to gather information and provide accurate answers."
-    )
-    agent = define_agent(model=llm, tools=tools, system_prompt=system_prompt)
+    agent = define_agent(model=llm, tools=tools, system_prompt=build_system_prompt())
 
     # 4) Run sesuai mode
     if args.question:
@@ -174,7 +280,7 @@ def main():
             question = args.question
 
         answer = run_agent(agent, question, verbose=verbose)
-        print(answer)
+        print(_render_cli_result(answer))
     else:
         # Mode interaktif: loop input()
         print("\nBrowsing Agent is ready... (mode interaktif)")
@@ -187,7 +293,7 @@ def main():
                     break
 
                 agent_answer = run_agent(agent, question=user_question, verbose=verbose)
-                print(agent_answer)
+                print(_render_cli_result(agent_answer))
         finally:
             fetcher_cleanup()
 

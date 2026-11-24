@@ -3,55 +3,75 @@ Unit test untuk agent/planner.py — tool limit reset per query.
 """
 
 import pytest
+
 from agent.planner import (
-    reset_run_state, get_run_state, check_and_increment, ToolLimitReached,
+    AgentRunState,
+    ToolLimitReached,
+    check_and_increment,
+    get_run_state,
 )
 
 
-def test_counter_starts_at_zero():
-    """Counter baru harus mulai dari nol."""
-    state = reset_run_state()
-    assert state.tool_calls["browse_tool"] == 0
-    assert state.tool_calls["search_tool"] == 0
+def test_nested_run_states_keep_independent_counters_and_evidence():
+    with AgentRunState() as outer:
+        check_and_increment("browse_tool", max_calls=5)
+        outer.evidence_store.items.append(object())
+
+        with AgentRunState() as inner:
+            check_and_increment("browse_tool", max_calls=5)
+            assert inner.tool_calls["browse_tool"] == 1
+            assert inner.evidence_store.items == []
+            assert get_run_state() is inner
+
+        assert get_run_state() is outer
+        assert outer.tool_calls["browse_tool"] == 1
+        assert len(outer.evidence_store.items) == 1
+
+    assert get_run_state() is None
 
 
-def test_counter_increments():
-    """Counter bertambah setelah check_and_increment."""
-    reset_run_state()
-    check_and_increment("browse_tool", max_calls=5)
-
-    state = get_run_state()
-    assert state.tool_calls["browse_tool"] == 1
+def test_run_state_is_none_outside_context():
+    assert get_run_state() is None
 
 
 def test_counter_raises_when_exceeded():
-    """Raise ToolLimitReached saat melebihi batas."""
-    reset_run_state()
-    with pytest.raises(ToolLimitReached):
-        check_and_increment("browse_tool", max_calls=0)
-
-
-def test_counter_resets_between_queries():
-    """Counter reset antara query — simulasi 2 query berbeda."""
-    # Query 1: increment 2x
-    reset_run_state()
-    check_and_increment("browse_tool", max_calls=5)
-    check_and_increment("browse_tool", max_calls=5)
-    state1 = get_run_state()
-    assert state1.tool_calls["browse_tool"] == 2
-
-    # Query 2: reset, harus kembali ke 0 lalu bisa increment lagi
-    reset_run_state()
-    check_and_increment("browse_tool", max_calls=5)
-    state2 = get_run_state()
-    assert state2.tool_calls["browse_tool"] == 1
+    with AgentRunState():
+        with pytest.raises(ToolLimitReached):
+            check_and_increment("browse_tool", max_calls=0)
 
 
 def test_urls_fetched_tracking():
-    """Set URLs fetched melacak URL per query."""
-    state = reset_run_state()
-    state.urls_fetched.add("https://example.com/a")
-    state.urls_fetched.add("https://example.com/b")
+    with AgentRunState() as state:
+        state.urls_fetched.add("https://example.com/a")
+        state.urls_fetched.add("https://example.com/b")
+        assert len(state.urls_fetched) == 2
+        assert "https://example.com/a" in state.urls_fetched
 
-    assert len(state.urls_fetched) == 2
-    assert "https://example.com/a" in state.urls_fetched
+
+def test_run_agent_returns_answer_and_run_evidence():
+    from types import SimpleNamespace
+
+    from main import _render_cli_result, run_agent
+    from storage.evidence import EvidenceItem
+
+    expected = EvidenceItem(
+        url="https://example.com",
+        title="Example",
+        canonical_url="https://example.com/canonical",
+    )
+
+    class Agent:
+        def invoke(self, payload):
+            state = get_run_state()
+            assert state is not None
+            state.evidence_store.items.append(expected)
+            return {"messages": [SimpleNamespace(type="ai", content="Answer")]}
+
+    result = run_agent(Agent(), "question")
+
+    assert result.answer == "Answer"
+    assert result.citations == [expected]
+    assert _render_cli_result(result) == (
+        "Answer\n\n---\nSumber:\n1. [Example](https://example.com/canonical)"
+    )
+    assert get_run_state() is None

@@ -1,0 +1,11 @@
+use_default_settings: true
+
+server:
+  # Secret key untuk session cookie — ganti untuk deployment shared/produksi.
+  secret_key: "browsing-agent-dev-searxng-secret"
+
+search:
+  # Aktifkan output JSON yang dipakai tools/search.py (_search_searxng).
+  formats:
+    - html
+    - json

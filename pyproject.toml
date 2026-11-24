@@ -1,17 +1,14 @@
 [project]
 name = "browsing-agent"
-version = "1.0.0"
+version = "1.1.0"
 description = "Agen browsing web dengan Azure OpenAI dan sumber jawaban."
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     "python-dotenv>=1.0.0",
     "langchain>=1.0.0",
     "langchain-openai>=1.0.0",
-    "langchain-community>=0.4.0",
     "langchain-core>=1.0.0",
-    "langchain-text-splitters>=1.0.0",
-    "langchainhub>=0.1.15",
-    "ddgs>=9.0.0",
+    "ddgs>=9.16.1",
     "selenium>=4.21.0",
     "webdriver-manager>=4.0.1",
     "lxml>=5.2.0",
@@ -19,10 +16,58 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "trafilatura>=1.9.0",
     "pydantic>=2.7.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "mlflow>=3.18.0",
+    "redis>=8.2.0",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.2.0"]
+dev = [
+    "mypy>=2.4.1",
+    "pip-audit>=2.10.1",
+    "pre-commit>=4.7.0",
+    "pytest>=8.2.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.6",
+]
 
 [tool.uv]
 package = false
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.14"
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = [
+    "ddgs.*",
+    "trafilatura.*",
+    "webdriver_manager.*",
+    "langchain.*",
+    "langchain_openai.*",
+]
+ignore_missing_imports = true
+[tool.coverage.run]
+source = [
+    "main",
+    "api",
+    "config",
+    "agent",
+    "tools",
+    "policy",
+    "storage",
+]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

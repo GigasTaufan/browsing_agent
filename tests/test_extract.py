@@ -3,8 +3,7 @@ Unit test untuk tools/extract.py.
 Menggunakan HTML fixture langsung di kode (tanpa request eksternal).
 """
 
-from tools.extract import extract_page, _chunk_text
-
+from tools.extract import _chunk_text, extract_page
 
 SIMPLE_HTML = """<!DOCTYPE html>
 <html>

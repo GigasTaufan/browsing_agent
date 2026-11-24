@@ -1,0 +1,62 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      # Default ke SearXNG internal; override via SEARXNG_BASE_URL di .env.
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080}
+      # Rate limit per API key via Redis internal; override di .env.
+      RATE_LIMIT_REDIS_URL: ${RATE_LIMIT_REDIS_URL:-redis://redis:6379/0}
+    networks:
+      - backend
+      - egress
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  searxng:
+    image: searxng/searxng:latest
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro,Z
+    networks:
+      - egress
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - backend
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      UI_API_KEY: ${UI_API_KEY:?Set UI_API_KEY in .env (copy .env.example first)}
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro,Z
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro,Z
+    networks:
+      - backend
+      # Nginx butuh satu network non-internal agar port publish 8080 berfungsi;
+      # container yang hanya menempel di network internal tidak menerima trafik host.
+      - egress
+
+networks:
+  backend:
+    internal: true
+  egress: {}

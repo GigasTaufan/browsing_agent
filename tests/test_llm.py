@@ -1,10 +1,19 @@
-"""Unit test pemilihan provider LLM."""
+"""Unit test pemilihan provider LLM dan system prompt."""
 
+from datetime import datetime
 from unittest.mock import Mock
 
 import pytest
 
 import main
+
+
+def test_build_system_prompt_grounds_date_and_evidence_priority():
+    prompt = main.build_system_prompt()
+
+    assert f"Today's date is {datetime.now().strftime('%Y-%m-%d')}." in prompt
+    assert "trust the tool results" in prompt
+    assert "cite the source URLs" in prompt
 
 
 def test_load_llm_selects_modelhub_when_api_key_is_set(monkeypatch):
@@ -51,6 +60,9 @@ def test_load_llm_uses_azure_when_modelhub_key_is_absent(monkeypatch):
     azure = Mock(return_value=model)
     modelhub = Mock()
     monkeypatch.setattr(main.config, "MODELHUB_API_KEY", None)
+    monkeypatch.setattr(main.config, "AZURE_OPENAI_ENDPOINT", "https://azure.example/")
+    monkeypatch.setattr(main.config, "AZURE_OPENAI_API_KEY", "azure-key")
+    monkeypatch.setattr(main.config, "AZURE_OPENAI_PREVIEW_API_VERSION", "2024-12-01-preview")
     monkeypatch.setattr(main, "AzureChatOpenAI", azure)
     monkeypatch.setattr(main, "ChatOpenAI", modelhub)
 
@@ -59,6 +71,7 @@ def test_load_llm_uses_azure_when_modelhub_key_is_absent(monkeypatch):
     assert result is model
     azure.assert_called_once_with(
         api_key=main.config.AZURE_OPENAI_API_KEY,
+        azure_endpoint=main.config.AZURE_OPENAI_ENDPOINT,
         azure_deployment=main.config.AZURE_OPENAI_DEPLOYMENT_NAME,
         api_version=main.config.AZURE_OPENAI_PREVIEW_API_VERSION,
         temperature=0.7,
@@ -66,4 +79,33 @@ def test_load_llm_uses_azure_when_modelhub_key_is_absent(monkeypatch):
         timeout=60,
         max_retries=2,
     )
+    modelhub.assert_not_called()
+
+
+def test_load_llm_rejects_incomplete_azure_config(monkeypatch):
+    azure = Mock()
+    monkeypatch.setattr(main.config, "MODELHUB_API_KEY", None)
+    monkeypatch.setattr(main.config, "AZURE_OPENAI_ENDPOINT", None)
+    monkeypatch.setattr(main.config, "AZURE_OPENAI_API_KEY", "azure-key")
+    monkeypatch.setattr(main.config, "AZURE_OPENAI_PREVIEW_API_VERSION", "2024-12-01-preview")
+    monkeypatch.setattr(main, "AzureChatOpenAI", azure)
+
+    with pytest.raises(ValueError, match="AZURE_OPENAI_ENDPOINT"):
+        main.load_llm()
+
+    azure.assert_not_called()
+
+
+def test_load_llm_raises_when_no_provider_is_configured(monkeypatch):
+    azure = Mock()
+    modelhub = Mock()
+    monkeypatch.setattr(main.config, "MODELHUB_API_KEY", None)
+    monkeypatch.setattr(main.config, "AZURE_OPENAI_API_KEY", None)
+    monkeypatch.setattr(main, "AzureChatOpenAI", azure)
+    monkeypatch.setattr(main, "ChatOpenAI", modelhub)
+
+    with pytest.raises(ValueError, match="MODELHUB_API_KEY"):
+        main.load_llm()
+
+    azure.assert_not_called()
     modelhub.assert_not_called()

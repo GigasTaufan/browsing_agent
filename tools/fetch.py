@@ -5,30 +5,37 @@ Browser session di-reuse (tidak launch per URL).
 Mematuhi robots.txt, rate limit, dan guardrails.
 """
 
+import os
+import threading
 import time
-from typing import Optional
 
 import httpx
 from bs4 import BeautifulSoup
 from langchain.tools import tool
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 import config
 from agent.planner import (
-    check_and_increment, ToolLimitReached,
-    is_domain_blocked_for_run, block_domain_for_run, get_run_state,
+    ToolLimitReached,
+    block_domain_for_run,
+    check_and_increment,
+    get_run_state,
+    is_domain_blocked_for_run,
 )
-from policy.robots import is_url_allowed
-from policy.rate_limit import DomainRateLimiter
 from policy.guardrails import is_url_blocked
+from policy.rate_limit import DomainRateLimiter
+from policy.robots import is_url_allowed
 from tools.extract import extract_page
 
 # --- Singleton Browser Session ---
-_browser_instance: Optional[webdriver.Chrome] = None
+_browser_instance: webdriver.Chrome | None = None
+_browser_lock = threading.Lock()
 
 
 def _get_browser() -> webdriver.Chrome:
@@ -37,12 +44,19 @@ def _get_browser() -> webdriver.Chrome:
     if _browser_instance is None:
         print("[Browser Fetcher]: Meluncurkan Chrome (headless)...")
         chrome_options = Options()
+        chrome_binary = os.environ.get("CHROME_BIN")
+        if chrome_binary:
+            chrome_options.binary_location = chrome_binary
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument(f"--user-agent={config.USER_AGENT}")
 
-        service = Service(ChromeDriverManager().install())
+        chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+        if chromedriver_path:
+            service = Service(chromedriver_path)
+        else:
+            service = Service(ChromeDriverManager().install())
         _browser_instance = webdriver.Chrome(service=service, options=chrome_options)
     return _browser_instance
 
@@ -50,10 +64,11 @@ def _get_browser() -> webdriver.Chrome:
 def close_browser() -> None:
     """Menutup instance browser. Panggil saat program exit."""
     global _browser_instance
-    if _browser_instance is not None:
-        print("[Browser Fetcher]: Menutup Chrome...")
-        _browser_instance.quit()
-        _browser_instance = None
+    with _browser_lock:
+        if _browser_instance is not None:
+            print("[Browser Fetcher]: Menutup Chrome...")
+            _browser_instance.quit()
+            _browser_instance = None
 
 
 # --- HTTP Fetcher ---
@@ -82,8 +97,10 @@ class HttpFetcher:
                 return response.status_code, content_type, response.text
 
             except (httpx.TimeoutException, httpx.ConnectError) as e:
-                wait = 2 ** attempt
-                print(f"[HTTP Fetch]: Retry {attempt}/{self.max_retries} untuk {url} (error: {e}). Menunggu {wait}s...")
+                wait = 2**attempt
+                print(
+                    f"[HTTP Fetch]: Retry {attempt}/{self.max_retries} untuk {url} (error: {e}). Menunggu {wait}s..."
+                )
                 time.sleep(wait)
 
             except Exception as e:
@@ -99,7 +116,7 @@ class HttpFetcher:
 
 
 # Global HTTP fetcher instance
-_http_fetcher: Optional[HttpFetcher] = None
+_http_fetcher: HttpFetcher | None = None
 
 
 def _get_http_fetcher() -> HttpFetcher:
@@ -136,7 +153,10 @@ def _is_js_heavy(content_type: str, html: str) -> bool:
     return text_length < 500
 
 
-@tool("browse_tool", description="Buka URL dengan HTTP-first (fallback browser) dan ambil teks dari <body>.")
+@tool(
+    "browse_tool",
+    description="Buka URL dengan HTTP-first (fallback browser) dan ambil teks dari <body>.",
+)
 def browse_tool(url: str) -> str:
     """
     Mengambil konten dari URL menggunakan HTTP-first strategy.
@@ -145,7 +165,7 @@ def browse_tool(url: str) -> str:
     """
     # 1) Cek domain yang sudah diblokir (403/429) untuk query ini
     if is_domain_blocked_for_run(url):
-        return f"[Browser Tool]: Domain ini sudah diblokir untuk query ini (403/429 sebelumnya)."
+        return "[Browser Tool]: Domain ini sudah diblokir untuk query ini (403/429 sebelumnya)."
 
     # 2) Tool limit check
     try:
@@ -173,7 +193,6 @@ def browse_tool(url: str) -> str:
 
     # 5) Rate limit
     _rate_limiter.wait_if_needed(url)
-
 
     # Percobaan gagal tetap memakai kuota; retry/fallback URL yang sama tidak.
     if state is not None:
@@ -204,12 +223,15 @@ def browse_tool(url: str) -> str:
     if config.BROWSER_FALLBACK_ENABLED and _is_js_heavy(content_type, html):
         print("[Browser Tool]: Teks halaman terlalu pendek, mencoba fallback via Selenium...")
         try:
-            driver = _get_browser()
-            driver.get(url)
-            time.sleep(2)
-            body_element = driver.find_element(By.TAG_NAME, 'body')
-            body_text = body_element.text
-            cleaned = " ".join(body_text.split())
+            with _browser_lock:
+                driver = _get_browser()
+                driver.get(url)
+                # Explicit wait: deteksi <body> hadir, maksimal 10 detik.
+                body_element = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                body_text = body_element.text
+                cleaned = " ".join(body_text.split())
 
             # Fallback HTML: tidak ada raw HTML dari Selenium, simulasi body
             fallback_html = f"<html><body>{body_text}</body></html>"

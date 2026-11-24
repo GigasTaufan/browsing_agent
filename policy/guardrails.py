@@ -1,22 +1,38 @@
 """
 Guardrails keamanan: menolak query atau URL berbahaya.
+Keyword dicocokkan per kata (word boundary) agar tidak over-blocking
+(mis. "passwordless" tidak tertangkap oleh keyword "password").
 """
 
 import re
 from urllib.parse import urlparse
 
-
 # Keyword yang mengindikasikan upaya bypass / scraping ilegal
 _BLOCKED_KEYWORDS = [
-    "bypass", "login", "password", "credential", "paywall",
-    "personal data", "harvest", "scrape private", "automate login",
-    "credential stuffing", "brute force",
+    "bypass",
+    "login",
+    "password",
+    "credential",
+    "paywall",
+    "personal data",
+    "harvest",
+    "scrape private",
+    "automate login",
+    "credential stuffing",
+    "brute force",
 ]
 
 # Domain / pattern yang sensitif — tidak perlu di-fetch
 _BLOCKED_DOMAINS = [
-    "bca.co.id", "bni.co.id", "mandiri.co.id", "bri.co.id",
-    "bca.co.id", "login.", "signin.", "auth.", "bank",
+    "bca.co.id",
+    "bni.co.id",
+    "mandiri.co.id",
+    "bri.co.id",
+    "bca.co.id",
+    "login.",
+    "signin.",
+    "auth.",
+    "bank",
 ]
 
 
@@ -30,7 +46,7 @@ def is_query_blocked(query: str) -> tuple[bool, str]:
     """
     lowered = query.lower()
     for keyword in _BLOCKED_KEYWORDS:
-        if keyword in lowered:
+        if re.search(rf"\b{re.escape(keyword)}\b", lowered):
             return True, (
                 f"[Guardrail]: Query mengandung kata kunci yang tidak diizinkan ('{keyword}'). "
                 "Agen ini tidak melakukan login automation, bypass, atau scraping data pribadi."

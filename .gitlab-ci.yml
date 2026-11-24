@@ -1,0 +1,51 @@
+# GitLab CI untuk intranet — mirror dari .github/workflows/ci.yml
+# Runner dianggap punya akses internet untuk install uv (atau mirror pypi internal).
+
+stages:
+  - quality
+  - security
+  - docker
+
+default:
+  image: python:3.14-slim
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .venv/
+      - .uv-cache/
+
+variables:
+  UV_CACHE_DIR: .uv-cache
+
+quality:
+  stage: quality
+  before_script:
+    - pip install --no-cache-dir uv
+  script:
+    - uv sync --locked
+    - uv run --no-sync ruff check .
+    - uv run --no-sync ruff format --check .
+    - uv run --no-sync mypy .
+    - uv run --no-sync python -m pytest tests/ --cov --cov-report=term-missing
+
+security:
+  stage: security
+  before_script:
+    - pip install --no-cache-dir uv
+  script:
+    - uv sync --locked
+    - uv run --no-sync pip-audit --skip-editable
+  # Advisory upstream tidak boleh memblokir merge; review secara berkala.
+  allow_failure: true
+
+docker:
+  stage: docker
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - docker build .

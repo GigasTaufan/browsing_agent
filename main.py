@@ -6,6 +6,7 @@ Menampilkan citations di akhir jawaban.
 
 import argparse
 import sys
+from datetime import datetime
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
@@ -134,6 +135,21 @@ def load_llm(verbose: bool = False):
 
 
 # 2) Definisikan Agent
+def build_system_prompt() -> str:
+    """System prompt dengan grounding tanggal dan prioritas bukti dari tools."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    return (
+        "You are an agent that can use tools to answer questions. "
+        "Use the provided tools (browse_tool & search_tool) to gather information "
+        "and provide accurate answers.\n"
+        f"Today's date is {today}.\n"
+        "Results from search_tool and browse_tool are real, current web evidence. "
+        "If they conflict with your prior knowledge, trust the tool results — "
+        "your training data may be outdated. "
+        "Ground your answer in the evidence and cite the source URLs."
+    )
+
+
 def define_agent(model, tools, system_prompt):
     """Membuat dan mengembalikan agent dengan model, tools, dan system prompt."""
     agent = create_agent(
@@ -211,11 +227,7 @@ def main():
     tools = [browse_tool, search_tool]
 
     # 3) Create Agent
-    system_prompt = (
-        "You are an agent that can use tools to answer questions. "
-        "Use the provided tools (browse_tool & search_tool) to gather information and provide accurate answers."
-    )
-    agent = define_agent(model=llm, tools=tools, system_prompt=system_prompt)
+    agent = define_agent(model=llm, tools=tools, system_prompt=build_system_prompt())
 
     # 4) Run sesuai mode
     if args.question:

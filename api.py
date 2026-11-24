@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 from starlette.concurrency import run_in_threadpool
 
-from main import define_agent, load_llm, run_agent, setup_tracing
+from main import build_system_prompt, define_agent, load_llm, run_agent, setup_tracing
 from tools.fetch import browse_tool, fetcher_cleanup
 from tools.search import search_tool
 
@@ -41,11 +41,9 @@ class AskResponse(BaseModel):
 
 def _default_agent_factory():
     model = load_llm()
-    system_prompt = (
-        "You are an agent that can use tools to answer questions. "
-        "Use the provided tools (browse_tool & search_tool) to gather information and provide accurate answers."
+    return define_agent(
+        model=model, tools=[browse_tool, search_tool], system_prompt=build_system_prompt()
     )
-    return define_agent(model=model, tools=[browse_tool, search_tool], system_prompt=system_prompt)
 
 
 def _error(code: str, message: str) -> dict[str, dict[str, str]]:

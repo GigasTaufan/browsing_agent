@@ -8,6 +8,8 @@ services:
     environment:
       # Default ke SearXNG internal; override via SEARXNG_BASE_URL di .env.
       SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080}
+      # Rate limit per API key via Redis internal; override di .env.
+      RATE_LIMIT_REDIS_URL: ${RATE_LIMIT_REDIS_URL:-redis://redis:6379/0}
     networks:
       - backend
       - egress
@@ -28,6 +30,12 @@ services:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro,Z
     networks:
       - egress
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - backend
     restart: unless-stopped
 
   nginx:

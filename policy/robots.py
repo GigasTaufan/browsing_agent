@@ -4,6 +4,7 @@ Meng-cache robots.txt per domain untuk mencegah fetch ulang.
 """
 
 import time
+import urllib.error
 import urllib.request
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -41,10 +42,16 @@ def _fetch_robots_txt(robots_url: str) -> RobotFileParser:
             # Parse langsung dari bytes response
             rp.parse(response.read().decode("utf-8", errors="replace").splitlines())
     except Exception as e:
-        # Jika gagal ambil robots.txt (404, timeout, dll), anggap semua boleh
-        print(f"[Robots Policy]: Gagal mengambil {robots_url} ({e}). Asumsikan diizinkan.")
-        # Allow all fallback
-        rp.allow_all = True  # type: ignore[attr-defined]  # atribut runtime stdlib
+        # 404 = robots.txt tidak ada -> RFC 9309: semua diizinkan.
+        # Error lain (timeout, 5xx, DNS): ikut kebijakan ROBOTS_FAIL_OPEN.
+        is_404 = isinstance(e, urllib.error.HTTPError) and e.code == 404
+        allow = is_404 or config.ROBOTS_FAIL_OPEN
+        verdict = "Diizinkan" if allow else "Ditolak"
+        print(f"[Robots Policy]: Gagal mengambil {robots_url} ({e}). {verdict}.")
+        if allow:
+            rp.allow_all = True  # type: ignore[attr-defined]  # atribut runtime stdlib
+        else:
+            rp.disallow_all = True  # type: ignore[attr-defined]  # atribut runtime stdlib
 
     return rp
 
@@ -87,7 +94,7 @@ def is_url_allowed(target_url: str, user_agent: str | None = None) -> bool:
         return rp.can_fetch(ua, target_url)
     except Exception as e:
         print(f"[Robots Policy]: Error parsing robots.txt untuk {target_url}: {e}")
-        return True  # Fail-open: izinkan jika parser error
+        return config.ROBOTS_FAIL_OPEN  # Fail-open default: izinkan jika parser error
 
 
 def clear_robots_cache() -> None:

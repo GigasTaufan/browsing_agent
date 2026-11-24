@@ -2,16 +2,19 @@
 
 import hmac
 import os
+import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 from starlette.concurrency import run_in_threadpool
 
+import config
 from main import build_system_prompt, define_agent, load_llm, run_agent, setup_tracing
+from policy.inbound_rate_limit import RateLimiterProtocol, build_rate_limiter
 from tools.fetch import browse_tool, fetcher_cleanup
 from tools.search import search_tool
 
@@ -50,7 +53,8 @@ def _error(code: str, message: str) -> dict[str, dict[str, str]]:
     return {"error": {"code": code, "message": message}}
 
 
-def _require_api_key(authorization: str | None = Header(default=None)) -> None:
+def _authenticate(authorization: str | None) -> str:
+    """Validasi Bearer key; mengembalikan key yang cocok (untuk rate limiting)."""
     scheme = ""
     candidate = ""
     if authorization is not None:
@@ -72,18 +76,34 @@ def _require_api_key(authorization: str | None = Header(default=None)) -> None:
     if scheme.casefold() != "bearer" or not candidate or not matches:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+    return candidate
 
-def create_app(agent_factory: Callable[[], object] | None = None) -> FastAPI:
+
+def create_app(
+    agent_factory: Callable[[], object] | None = None,
+    rate_limiter: RateLimiterProtocol | None = None,
+) -> FastAPI:
     """Create the API app; its agent factory runs once for each app lifespan."""
     factory = agent_factory or _default_agent_factory
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         setup_tracing()
+        limiter = rate_limiter
+        owns_limiter = False
+        if limiter is None:
+            limiter = build_rate_limiter()
+            owns_limiter = limiter is not None
+        app.state.rate_limiter = limiter
+        app.state.concurrency_semaphore = threading.BoundedSemaphore(
+            config.MAX_CONCURRENT_AGENT_RUNS
+        )
         try:
             app.state.agent = factory()
             yield
         finally:
+            if owns_limiter and limiter is not None:
+                await limiter.aclose()
             fetcher_cleanup()
 
     app = FastAPI(lifespan=lifespan)
@@ -129,9 +149,38 @@ def create_app(agent_factory: Callable[[], object] | None = None) -> FastAPI:
     @app.post("/api/v1/ask", response_model=AskResponse)
     async def ask(
         payload: AskRequest,
-        _authorized: None = Depends(_require_api_key),
-    ) -> AskResponse:
-        result = await run_in_threadpool(run_agent, app.state.agent, payload.question)
+        authorization: str | None = Header(default=None),
+    ) -> AskResponse | JSONResponse:
+        api_key = _authenticate(authorization)
+
+        if len(payload.question) > config.MAX_QUESTION_LENGTH:
+            return JSONResponse(
+                status_code=422,
+                content=_error(
+                    "invalid_request",
+                    f"Pertanyaan terlalu panjang (maksimal {config.MAX_QUESTION_LENGTH} karakter).",
+                ),
+            )
+
+        limiter = app.state.rate_limiter
+        if limiter is not None and not await limiter.check(api_key):
+            return JSONResponse(
+                status_code=429,
+                content=_error(
+                    "rate_limited", "Terlalu banyak request. Coba lagi dalam satu menit."
+                ),
+            )
+
+        semaphore = app.state.concurrency_semaphore
+        if not semaphore.acquire(blocking=False):
+            return JSONResponse(
+                status_code=429,
+                content=_error("server_busy", "Server sedang sibuk. Coba lagi nanti."),
+            )
+        try:
+            result = await run_in_threadpool(run_agent, app.state.agent, payload.question)
+        finally:
+            semaphore.release()
         citations = [
             Citation(
                 id=index,

@@ -29,7 +29,7 @@ def test_caller_ingress_forwards_auth_header_to_api():
     config = NGINX_TEMPLATE.read_text(encoding="utf-8")
     caller = _location_block(config, "/api/")
 
-    assert "proxy_pass http://api:8000;" in caller
+    assert "proxy_pass $api_upstream;" in caller
     assert "proxy_set_header Authorization $http_authorization;" in caller
 
 
@@ -37,10 +37,19 @@ def test_ui_ingress_uses_server_key_and_never_serves_it_to_browser():
     config = NGINX_TEMPLATE.read_text(encoding="utf-8")
     ui = _location_block(config, "/ui-api/")
 
-    assert "proxy_pass http://api:8000/api/;" in ui
+    assert "rewrite ^/ui-api/(.*)$ /api/$1 break;" in ui
+    assert "proxy_pass $api_upstream;" in ui
     assert 'proxy_set_header Authorization "Bearer ${UI_API_KEY}";' in ui
     for asset in (FRONTEND / "index.html", FRONTEND / "app.js"):
         assert "UI_API_KEY" not in asset.read_text(encoding="utf-8")
+
+
+def test_upstream_dns_is_reresolved_at_runtime():
+    """Resolver + variable upstream agar rebuild api tidak menyebabkan 502 stale IP."""
+    config = NGINX_TEMPLATE.read_text(encoding="utf-8")
+
+    assert "resolver 127.0.0.11 valid=10s ipv6=off;" in config
+    assert "set $api_upstream http://api:8000;" in config
 
 
 def test_valid_caller_request_succeeds_through_nginx_with_stub_backend(tmp_path):

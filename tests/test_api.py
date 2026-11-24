@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
+import config
 from agent.planner import get_run_state
 from api import create_app
 from storage.evidence import EvidenceItem
@@ -36,9 +37,23 @@ class StubAgent:
         return {"messages": [SimpleNamespace(type="ai", content="An answer.")]}
 
 
+class StubLimiter:
+    """Rate limiter stub: mencatat key dan mengembalikan keputusan tetap."""
+
+    def __init__(self, allowed: bool):
+        self.allowed = allowed
+        self.keys: list[str] = []
+
+    async def check(self, api_key: str) -> bool:
+        self.keys.append(api_key)
+        return self.allowed
+
+
 @pytest.fixture
 def api_client(monkeypatch):
     monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    # Hermetic: jangan bangun Redis limiter dari .env lokal di unit test.
+    monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
     agent = StubAgent()
     factory_calls = []
 
@@ -137,6 +152,7 @@ def test_health_check_is_public_and_does_not_expose_configuration(api_client):
 
 def test_agent_is_created_once_and_fetcher_is_cleaned_at_shutdown(monkeypatch):
     monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
     factory = Mock(return_value=StubAgent())
     cleanup = Mock()
     monkeypatch.setattr("api.fetcher_cleanup", cleanup)
@@ -146,3 +162,68 @@ def test_agent_is_created_once_and_fetcher_is_cleaned_at_shutdown(monkeypatch):
 
     assert factory.call_count == 1
     cleanup.assert_called_once_with()
+
+
+def test_overlong_question_is_rejected(api_client, monkeypatch):
+    client, agent, _ = api_client
+    monkeypatch.setattr(config, "MAX_QUESTION_LENGTH", 10)
+
+    response = client.post(
+        "/api/v1/ask",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        json={"question": "x" * 11},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert "terlalu panjang" in response.json()["error"]["message"]
+    assert agent.calls == []
+
+
+def test_rate_limit_exceeded_returns_429(monkeypatch):
+    monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
+    limiter = StubLimiter(allowed=False)
+
+    with TestClient(create_app(agent_factory=lambda: StubAgent(), rate_limiter=limiter)) as client:
+        response = client.post(
+            "/api/v1/ask",
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            json={"question": "Question"},
+        )
+
+    assert response.status_code == 429
+    assert response.json() == {
+        "error": {
+            "code": "rate_limited",
+            "message": "Terlalu banyak request. Coba lagi dalam satu menit.",
+        }
+    }
+    assert limiter.keys == [API_KEY]
+
+
+def test_concurrency_cap_returns_429_when_exhausted(monkeypatch):
+    monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
+    monkeypatch.setattr(config, "MAX_CONCURRENT_AGENT_RUNS", 1)
+
+    with TestClient(create_app(agent_factory=lambda: StubAgent())) as client:
+        semaphore = client.app.state.concurrency_semaphore
+        assert semaphore.acquire(blocking=False)
+
+        busy = client.post(
+            "/api/v1/ask",
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            json={"question": "Question"},
+        )
+        semaphore.release()
+
+        ok = client.post(
+            "/api/v1/ask",
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            json={"question": "Question"},
+        )
+
+    assert busy.status_code == 429
+    assert busy.json()["error"]["code"] == "server_busy"
+    assert ok.status_code == 200

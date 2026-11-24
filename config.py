@@ -75,6 +75,8 @@ BROWSER_FALLBACK_ENABLED = _env_bool("BROWSER_FALLBACK_ENABLED", True)
 # --- Safe Crawling ---
 USER_AGENT = os.getenv("USER_AGENT", "BrowsingAgent/0.1")
 RATE_LIMIT_PER_DOMAIN_SECONDS = _env_float("RATE_LIMIT_PER_DOMAIN_SECONDS", 1.0)
+# True: robots.txt gagal di-fetch (non-404) => izinkan. False: tolak (fail-closed).
+ROBOTS_FAIL_OPEN = _env_bool("ROBOTS_FAIL_OPEN", True)
 
 # --- MLflow GenAI Tracing ---
 MLFLOW_TRACING_ENABLED = _env_bool("MLFLOW_TRACING_ENABLED", True)
@@ -88,3 +90,9 @@ SEARCH_FALLBACK_ENABLED = _env_bool("SEARCH_FALLBACK_ENABLED", True)
 
 # --- Content Extraction ---
 CHUNK_SIZE = _env_int("CHUNK_SIZE", 2000)
+# --- API Inbound Limits ---
+# Rate limit per API key via Redis; kosong = dinonaktifkan (fail-open saat Redis down).
+RATE_LIMIT_REDIS_URL = os.getenv("RATE_LIMIT_REDIS_URL")
+RATE_LIMIT_REQUESTS_PER_MINUTE = _env_int("RATE_LIMIT_REQUESTS_PER_MINUTE", 10)
+MAX_CONCURRENT_AGENT_RUNS = _env_int("MAX_CONCURRENT_AGENT_RUNS", 4)
+MAX_QUESTION_LENGTH = _env_int("MAX_QUESTION_LENGTH", 2000)

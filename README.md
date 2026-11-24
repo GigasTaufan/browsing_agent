@@ -134,7 +134,12 @@ uv run python -m pytest tests/
 | `BROWSER_FALLBACK_ENABLED` | `true` | Aktifkan Selenium fallback |
 | `USER_AGENT` | `BrowsingAgent/0.1` | User-Agent untuk pengambilan halaman web |
 | `RATE_LIMIT_PER_DOMAIN_SECONDS` | `1.0` | Delay antar request ke domain sama (detik) |
+| `ROBOTS_FAIL_OPEN` | `true` | `true`: izinkan jika robots.txt gagal di-fetch (non-404); `false`: tolak |
 | `CHUNK_SIZE` | `2000` | Ukuran chunk konten halaman |
+| `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` (di Compose) | URL Redis untuk rate limit per API key; kosong = nonaktif |
+| `RATE_LIMIT_REQUESTS_PER_MINUTE` | `10` | Maksimum request per API key per menit |
+| `MAX_CONCURRENT_AGENT_RUNS` | `4` | Maksimum agent yang berjalan konkuren; sisanya ditolak 429 |
+| `MAX_QUESTION_LENGTH` | `2000` | Panjang maksimum pertanyaan (karakter) |
 
 Untuk menjalankan contoh penggunaan API ModelHub secara langsung:
 ```bash

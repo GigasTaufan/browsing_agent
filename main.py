@@ -5,8 +5,11 @@ Menampilkan citations di akhir jawaban.
 """
 
 import argparse
+import os
+import socket
 import sys
 from datetime import datetime
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
@@ -44,6 +47,18 @@ def _parse_args() -> argparse.Namespace:
 
 
 # 1) Inisialisasi LLM
+def _mlflow_reachable(uri: str, timeout: float = 2.0) -> bool:
+    """Pre-flight TCP check dengan hard timeout agar tracing tidak menggantung startup."""
+    parsed = urlparse(uri)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def setup_tracing(verbose: bool = False):
     """
     Aktifkan MLflow GenAI tracing untuk LangChain (opsional, non-fatal).
@@ -52,6 +67,33 @@ def setup_tracing(verbose: bool = False):
     if not config.MLFLOW_TRACING_ENABLED:
         if verbose:
             print("[Tracing]: MLflow tracing dinonaktifkan (MLFLOW_TRACING_ENABLED=false).")
+        return None
+
+    # Guard: server tidak terjangkau -> skip cepat, jangan sampai startup menggantung.
+    if not _mlflow_reachable(config.MLFLOW_TRACKING_URI):
+        print(
+            f"[Tracing]: Server MLflow tidak terjangkau ({config.MLFLOW_TRACKING_URI}). "
+            "Lanjutkan tanpa tracing."
+        )
+        return None
+
+    try:
+        import mlflow
+
+        # Hard timeout untuk semua REST call MLflow (default: tanpa timeout).
+        os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", "5")
+        mlflow.set_tracking_uri(config.MLFLOW_TRACKING_URI)
+        mlflow.set_experiment(config.MLFLOW_EXPERIMENT_NAME)
+        # Autolog LangChain: trace otomatis untuk LLM, tools, dan agent graph.
+        mlflow.langchain.autolog()
+        if verbose:
+            print(
+                f"[Tracing]: MLflow tracing aktif -> {config.MLFLOW_TRACKING_URI} "
+                f"(experiment: {config.MLFLOW_EXPERIMENT_NAME})"
+            )
+        return mlflow
+    except Exception as e:
+        print(f"[Tracing]: Gagal mengaktifkan MLflow tracing ({e}). Lanjut tanpa tracing.")
         return None
 
     try:

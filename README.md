@@ -4,7 +4,7 @@ Agen browsing web yang aman, modular, dan legal-compliant untuk menjawab pertany
 
 ## Fitur Utama
 
-- **LLM dengan Azure OpenAI** — `AzureChatOpenAI` sebagai otak agen untuk perencanaan dan analisis.
+- **LLM dengan ModelHub (utama) / Azure OpenAI (fallback)** — `ChatOpenAI` OpenAI-compatible untuk ModelHub; `AzureChatOpenAI` hanya jika kredensial Azure diisi.
 - **Pencarian Web** — DuckDuckGo dengan retry multi-backend (`lite` → `auto`) dan ranking berbasis kualitas domain.
 - **HTTP-First Fetching** — `httpx` sebagai default; browser Selenium hanya jadi fallback untuk halaman JS-heavy.
 - **Extract Konten Terstruktur** — Menggunakan `trafilatura` / `BeautifulSoup` untuk ekstrak judul, headings, teks utama, dan link.
@@ -50,7 +50,7 @@ browsing_agent/
 flowchart TD
     A["Pertanyaan pengguna<br/>(CLI argumen / interaktif / API)"] --> B{"Query lolos<br/>guardrails?"}
     B -->|Diblokir| C["Kembalikan alasan<br/>penolakan"]
-    B -->|Lolos| D["Agent loop (LangChain)<br/>LLM: Azure OpenAI / ModelHub"]
+    B -->|Lolos| D["Agent loop (LangChain)<br/>LLM: ModelHub (utama) / Azure OpenAI (fallback)"]
     D --> E{"Kuota tool call<br/>atau URL habis?"}
     E -->|Ya| K["Susun jawaban akhir"]
     E -->|Tidak| F{"LLM memilih tool"}
@@ -83,7 +83,7 @@ uv sync --locked
 # 3. Setup kredensial (Linux/Mac)
 cp .env.example .env
 # Windows PowerShell: Copy-Item .env.example .env
-# Edit .env dan isi kredensial Azure OpenAI Anda
+# Edit .env dan isi MODELHUB_API_KEY Anda (provider utama)
 ```
 
 Dependensi dikelola di `pyproject.toml`; `uv.lock` mengunci versinya agar instalasi konsisten. `uv run` memakai `.venv` otomatis, tanpa aktivasi manual. Untuk instalasi tanpa dependensi pengujian, gunakan `uv sync --locked --no-dev`.
@@ -114,13 +114,13 @@ uv run python -m pytest tests/
 
 | Variabel | Default | Keterangan |
 |----------|---------|------------|
-| `AZURE_OPENAI_ENDPOINT` | — (wajib untuk Azure) | Endpoint Azure OpenAI |
-| `AZURE_OPENAI_API_KEY` | — (wajib untuk Azure) | API Key Azure OpenAI |
-| `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o-mini` | Nama deployment model Azure |
-| `AZURE_OPENAI_PREVIEW_API_VERSION` | — (wajib untuk Azure) | Versi API preview |
-| `MODELHUB_API_KEY` | — (opsional) | Jika diisi, aplikasi memilih ModelHub alih-alih Azure |
+| `MODELHUB_API_KEY` | — (wajib untuk provider utama) | Jika diisi, aplikasi memakai ModelHub sebagai LLM utama |
 | `MODELHUB_BASE_URL` | `https://api-modelhub.aiplayground.id/v1` | Endpoint OpenAI-compatible ModelHub |
 | `MODELHUB_MODEL_NAME` | `gpt-4o-mini` | Nama model ModelHub |
+| `AZURE_OPENAI_ENDPOINT` | — (fallback Azure) | Endpoint Azure OpenAI |
+| `AZURE_OPENAI_API_KEY` | — (fallback Azure) | API Key Azure OpenAI |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o-mini` | Nama deployment model Azure |
+| `AZURE_OPENAI_PREVIEW_API_VERSION` | — (fallback Azure) | Versi API preview |
 | `MAX_TOOL_CALLS` | `5` | Batas pemanggilan tool per query |
 | `MAX_URLS_PER_QUERY` | `3` | Batas URL unik yang dicoba di-fetch per query; gagal tetap dihitung, URL yang sama tidak menambah kuota |
 | `MAX_SEARCH_RESULTS` | `5` | Maksimum hasil search yang ditampilkan |

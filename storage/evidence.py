@@ -5,7 +5,6 @@ Mendukung deduplikasi berdasarkan content hash dan canonical URL.
 """
 
 import hashlib
-from typing import List
 
 from pydantic import BaseModel
 
@@ -16,6 +15,7 @@ class EvidenceItem(BaseModel):
     """
     Satu item evidence yang merepresentasikan satu halaman yang berhasil di-fetch.
     """
+
     url: str
     title: str | None = None
     snippet: str = ""
@@ -31,7 +31,7 @@ class EvidenceStore:
 
     def __init__(self):
         # List evidence yang sudah tersimpan (unik)
-        self.items: List[EvidenceItem] = []
+        self.items: list[EvidenceItem] = []
         # Set untuk deteksi duplikat
         self._hashes: set[str] = set()
         self._canonical_urls: set[str] = set()
@@ -88,7 +88,7 @@ class EvidenceStore:
         self._canonical_urls.add(canonical)
         return item
 
-    def get_citations(self) -> List[str]:
+    def get_citations(self) -> list[str]:
         """
         Kembalikan daftar string citation dalam format:
         [index]. [Judul](URL)

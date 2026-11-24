@@ -3,11 +3,11 @@ Unit test untuk policy/robots.py.
 Mock urllib.request untuk menghindari request HTTP nyata.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
-from io import BytesIO
+from unittest.mock import MagicMock, patch
 
-from policy.robots import is_url_allowed, clear_robots_cache
+import pytest
+
+from policy.robots import clear_robots_cache, is_url_allowed
 
 
 @pytest.fixture(autouse=True)
@@ -56,6 +56,7 @@ def test_robots_fetch_error(capsys):
 @pytest.fixture
 def mock_urlopen():
     """Fixture untuk mock urllib.request.urlopen dengan robots.txt content."""
+
     def _mock(content: str):
         def side_effect(req, **kwargs):
             # Return a mock response with a read() method
@@ -64,7 +65,9 @@ def mock_urlopen():
             mock_resp.__enter__ = lambda s: s
             mock_resp.__exit__ = lambda s, *a: False
             return mock_resp
+
         patcher = patch("urllib.request.urlopen", side_effect=side_effect)
         patcher.start()
         return patcher
+
     return _mock

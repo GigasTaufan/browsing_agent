@@ -2,21 +2,34 @@
 Guardrails keamanan: menolak query atau URL berbahaya.
 """
 
-import re
 from urllib.parse import urlparse
-
 
 # Keyword yang mengindikasikan upaya bypass / scraping ilegal
 _BLOCKED_KEYWORDS = [
-    "bypass", "login", "password", "credential", "paywall",
-    "personal data", "harvest", "scrape private", "automate login",
-    "credential stuffing", "brute force",
+    "bypass",
+    "login",
+    "password",
+    "credential",
+    "paywall",
+    "personal data",
+    "harvest",
+    "scrape private",
+    "automate login",
+    "credential stuffing",
+    "brute force",
 ]
 
 # Domain / pattern yang sensitif — tidak perlu di-fetch
 _BLOCKED_DOMAINS = [
-    "bca.co.id", "bni.co.id", "mandiri.co.id", "bri.co.id",
-    "bca.co.id", "login.", "signin.", "auth.", "bank",
+    "bca.co.id",
+    "bni.co.id",
+    "mandiri.co.id",
+    "bri.co.id",
+    "bca.co.id",
+    "login.",
+    "signin.",
+    "auth.",
+    "bank",
 ]
 
 

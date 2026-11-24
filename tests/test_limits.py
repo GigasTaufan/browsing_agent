@@ -3,8 +3,12 @@ Unit test untuk agent/planner.py — tool limit reset per query.
 """
 
 import pytest
+
 from agent.planner import (
-    AgentRunState, get_run_state, check_and_increment, ToolLimitReached,
+    AgentRunState,
+    ToolLimitReached,
+    check_and_increment,
+    get_run_state,
 )
 
 
@@ -44,7 +48,6 @@ def test_urls_fetched_tracking():
         assert "https://example.com/a" in state.urls_fetched
 
 
-
 def test_run_agent_returns_answer_and_run_evidence():
     from types import SimpleNamespace
 
@@ -52,7 +55,8 @@ def test_run_agent_returns_answer_and_run_evidence():
     from storage.evidence import EvidenceItem
 
     expected = EvidenceItem(
-        url="https://example.com", title="Example",
+        url="https://example.com",
+        title="Example",
         canonical_url="https://example.com/canonical",
     )
 
@@ -61,7 +65,7 @@ def test_run_agent_returns_answer_and_run_evidence():
             state = get_run_state()
             assert state is not None
             state.evidence_store.items.append(expected)
-            return {"messages": [SimpleNamespace(type="ai", content="Answer") ]}
+            return {"messages": [SimpleNamespace(type="ai", content="Answer")]}
 
     result = run_agent(Agent(), "question")
 

@@ -9,29 +9,30 @@ import os
 import threading
 import time
 
-from typing import Optional
-
 import httpx
 from bs4 import BeautifulSoup
 from langchain.tools import tool
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
 import config
 from agent.planner import (
-    check_and_increment, ToolLimitReached,
-    is_domain_blocked_for_run, block_domain_for_run, get_run_state,
+    ToolLimitReached,
+    block_domain_for_run,
+    check_and_increment,
+    get_run_state,
+    is_domain_blocked_for_run,
 )
-from policy.robots import is_url_allowed
-from policy.rate_limit import DomainRateLimiter
 from policy.guardrails import is_url_blocked
+from policy.rate_limit import DomainRateLimiter
+from policy.robots import is_url_allowed
 from tools.extract import extract_page
 
 # --- Singleton Browser Session ---
-_browser_instance: Optional[webdriver.Chrome] = None
+_browser_instance: webdriver.Chrome | None = None
 _browser_lock = threading.Lock()
 
 
@@ -94,8 +95,10 @@ class HttpFetcher:
                 return response.status_code, content_type, response.text
 
             except (httpx.TimeoutException, httpx.ConnectError) as e:
-                wait = 2 ** attempt
-                print(f"[HTTP Fetch]: Retry {attempt}/{self.max_retries} untuk {url} (error: {e}). Menunggu {wait}s...")
+                wait = 2**attempt
+                print(
+                    f"[HTTP Fetch]: Retry {attempt}/{self.max_retries} untuk {url} (error: {e}). Menunggu {wait}s..."
+                )
                 time.sleep(wait)
 
             except Exception as e:
@@ -111,7 +114,7 @@ class HttpFetcher:
 
 
 # Global HTTP fetcher instance
-_http_fetcher: Optional[HttpFetcher] = None
+_http_fetcher: HttpFetcher | None = None
 
 
 def _get_http_fetcher() -> HttpFetcher:
@@ -148,7 +151,10 @@ def _is_js_heavy(content_type: str, html: str) -> bool:
     return text_length < 500
 
 
-@tool("browse_tool", description="Buka URL dengan HTTP-first (fallback browser) dan ambil teks dari <body>.")
+@tool(
+    "browse_tool",
+    description="Buka URL dengan HTTP-first (fallback browser) dan ambil teks dari <body>.",
+)
 def browse_tool(url: str) -> str:
     """
     Mengambil konten dari URL menggunakan HTTP-first strategy.
@@ -157,7 +163,7 @@ def browse_tool(url: str) -> str:
     """
     # 1) Cek domain yang sudah diblokir (403/429) untuk query ini
     if is_domain_blocked_for_run(url):
-        return f"[Browser Tool]: Domain ini sudah diblokir untuk query ini (403/429 sebelumnya)."
+        return "[Browser Tool]: Domain ini sudah diblokir untuk query ini (403/429 sebelumnya)."
 
     # 2) Tool limit check
     try:
@@ -185,7 +191,6 @@ def browse_tool(url: str) -> str:
 
     # 5) Rate limit
     _rate_limiter.wait_if_needed(url)
-
 
     # Percobaan gagal tetap memakai kuota; retry/fallback URL yang sama tidak.
     if state is not None:
@@ -220,7 +225,7 @@ def browse_tool(url: str) -> str:
                 driver = _get_browser()
                 driver.get(url)
                 time.sleep(2)
-                body_element = driver.find_element(By.TAG_NAME, 'body')
+                body_element = driver.find_element(By.TAG_NAME, "body")
                 body_text = body_element.text
                 cleaned = " ".join(body_text.split())
 

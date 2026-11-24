@@ -6,17 +6,16 @@ Menampilkan citations di akhir jawaban.
 
 import argparse
 import sys
-import os
-from dotenv import load_dotenv
 
-from langchain_openai import AzureChatOpenAI, ChatOpenAI
+from dotenv import load_dotenv
 from langchain.agents import create_agent
+from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
 import config
-from agent.planner import AgentRunState, AgentRunResult
+from agent.planner import AgentRunResult, AgentRunState
 from policy.guardrails import is_query_blocked
-from tools.search import search_tool
 from tools.fetch import browse_tool, fetcher_cleanup
+from tools.search import search_tool
 
 
 def _parse_args() -> argparse.Namespace:
@@ -30,7 +29,8 @@ def _parse_args() -> argparse.Namespace:
         help="Pertanyaan yang ingin dijawab (opsional — tanpa ini, mode interaktif).",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Tampilkan log detail dari setiap step.",
     )
@@ -43,8 +43,36 @@ def _parse_args() -> argparse.Namespace:
 
 
 # 1) Inisialisasi LLM
+def setup_tracing(verbose: bool = False):
+    """
+    Aktifkan MLflow GenAI tracing untuk LangChain (opsional, non-fatal).
+    Jika server MLflow tidak terjangkau, aplikasi tetap berjalan tanpa tracing.
+    """
+    if not config.MLFLOW_TRACING_ENABLED:
+        if verbose:
+            print("[Tracing]: MLflow tracing dinonaktifkan (MLFLOW_TRACING_ENABLED=false).")
+        return None
+
+    try:
+        import mlflow
+
+        mlflow.set_tracking_uri(config.MLFLOW_TRACKING_URI)
+        mlflow.set_experiment(config.MLFLOW_EXPERIMENT_NAME)
+        # Autolog LangChain: trace otomatis untuk LLM, tools, dan agent graph.
+        mlflow.langchain.autolog()
+        if verbose:
+            print(
+                f"[Tracing]: MLflow tracing aktif -> {config.MLFLOW_TRACKING_URI} "
+                f"(experiment: {config.MLFLOW_EXPERIMENT_NAME})"
+            )
+        return mlflow
+    except Exception as e:
+        print(f"[Tracing]: Gagal mengaktifkan MLflow tracing ({e}). Lanjutkan tanpa tracing.")
+        return None
+
+
 def load_llm(verbose: bool = False):
-    """Memuat ModelHub jika API key tersedia, selain itu memakai Azure."""
+    """Memuat ModelHub (provider utama); fallback ke Azure OpenAI jika dikonfigurasi."""
     if config.MODELHUB_API_KEY:
         if not config.MODELHUB_BASE_URL or not config.MODELHUB_MODEL_NAME:
             raise ValueError(
@@ -66,20 +94,43 @@ def load_llm(verbose: bool = False):
             print("[Config]: LLM ModelHub loaded.")
         return llm
 
-    if verbose:
-        print("[Config]: Load LLM Azure ...")
-    llm = AzureChatOpenAI(
-        api_key=config.AZURE_OPENAI_API_KEY,
-        azure_deployment=config.AZURE_OPENAI_DEPLOYMENT_NAME,
-        api_version=config.AZURE_OPENAI_PREVIEW_API_VERSION,
-        temperature=0.7,
-        max_tokens=1500,
-        timeout=60,
-        max_retries=2,
+    # Fallback: Azure OpenAI hanya jika API key-nya dikonfigurasi.
+    if config.AZURE_OPENAI_API_KEY:
+        missing = [
+            name
+            for name, value in (
+                ("AZURE_OPENAI_ENDPOINT", config.AZURE_OPENAI_ENDPOINT),
+                ("AZURE_OPENAI_PREVIEW_API_VERSION", config.AZURE_OPENAI_PREVIEW_API_VERSION),
+            )
+            if not value
+        ]
+        if missing:
+            raise ValueError(
+                f"Kredensial Azure OpenAI tidak lengkap: {', '.join(missing)}. "
+                "Isi di file .env (lihat .env.example)."
+            )
+
+        if verbose:
+            print("[Config]: Load LLM Azure ...")
+        azure_llm = AzureChatOpenAI(
+            api_key=config.AZURE_OPENAI_API_KEY,
+            azure_endpoint=config.AZURE_OPENAI_ENDPOINT,
+            azure_deployment=config.AZURE_OPENAI_DEPLOYMENT_NAME,
+            api_version=config.AZURE_OPENAI_PREVIEW_API_VERSION,
+            temperature=0.7,
+            max_tokens=1500,
+            timeout=60,
+            max_retries=2,
+        )
+        if verbose:
+            print("[Config]: LLM Azure loaded.")
+        return azure_llm
+
+    raise ValueError(
+        "Tidak ada provider LLM terkonfigurasi. "
+        "Isi MODELHUB_API_KEY (provider utama) atau kredensial Azure OpenAI (fallback) "
+        "di file .env (lihat .env.example)."
     )
-    if verbose:
-        print("[Config]: LLM Azure loaded.")
-    return llm
 
 
 # 2) Definisikan Agent
@@ -105,9 +156,7 @@ def run_agent(agent, question: str, verbose: bool = False) -> AgentRunResult:
             print(f"[Planner]: Menerima query: {question!r}")
             print("[Planner]: Mengirim ke agent...")
 
-        result = agent.invoke({
-            "messages": [{"role": "user", "content": question}]
-        })
+        result = agent.invoke({"messages": [{"role": "user", "content": question}]})
 
         messages = result.get("messages", [])
         final_msg = None
@@ -118,9 +167,7 @@ def run_agent(agent, question: str, verbose: bool = False) -> AgentRunResult:
                 break
 
         answer = final_msg.content if final_msg else result
-        return AgentRunResult(
-            answer=str(answer), citations=list(state.evidence_store.items)
-        )
+        return AgentRunResult(answer=str(answer), citations=list(state.evidence_store.items))
 
 
 def _render_cli_result(result: AgentRunResult) -> str:
@@ -153,6 +200,9 @@ def main():
         print(f"[Config]: MAX_TOOL_CALLS = {config.MAX_TOOL_CALLS}")
         print(f"[Config]: USER_AGENT = {config.USER_AGENT}")
         print(f"[Config]: BROWSER_FALLBACK = {config.BROWSER_FALLBACK_ENABLED}")
+
+    # 0) Aktifkan MLflow tracing (opsional)
+    setup_tracing(verbose=verbose)
 
     # 1) Load LLM
     llm = load_llm(verbose=verbose)

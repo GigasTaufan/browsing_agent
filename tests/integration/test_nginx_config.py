@@ -1,14 +1,14 @@
 """Smoke checks for the Nginx ingress contract without provider credentials."""
 
-from pathlib import Path
 import json
 import re
 import shutil
 import subprocess
 import time
 import uuid
-import pytest
+from pathlib import Path
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 NGINX_TEMPLATE = ROOT / "nginx" / "default.conf.template"
@@ -97,9 +97,7 @@ HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
     )
 
     def docker(*args, check=True):
-        return subprocess.run(
-            ["docker", *args], capture_output=True, text=True, check=check
-        )
+        return subprocess.run(["docker", *args], capture_output=True, text=True, check=check)
 
     try:
         docker("network", "create", network)
@@ -149,7 +147,9 @@ HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
                 break
             time.sleep(0.1)
         nginx_logs = docker("logs", nginx_name, check=False).stderr
-        assert response is not None and response.returncode == 0, f"Nginx did not become ready: {nginx_logs}"
+        assert response is not None and response.returncode == 0, (
+            f"Nginx did not become ready: {nginx_logs}"
+        )
 
         deadline = time.monotonic() + 15
         response = None
@@ -174,7 +174,7 @@ HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
             nginx_name,
             "wget",
             "-qO-",
-            "--post-data={\"question\":\"Ingress smoke question\"}",
+            '--post-data={"question":"Ingress smoke question"}',
             f"--header=Authorization: Bearer {caller_key}",
             "--header=Content-Type: application/json",
             "http://127.0.0.1/api/v1/ask",

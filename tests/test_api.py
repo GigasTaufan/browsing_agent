@@ -4,12 +4,11 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from fastapi.testclient import TestClient
+
 from agent.planner import get_run_state
 from api import create_app
-from fastapi.testclient import TestClient
 from storage.evidence import EvidenceItem
-
-
 
 API_KEY = "caller-test-key"
 
@@ -47,7 +46,9 @@ def api_client(monkeypatch):
         factory_calls.append(True)
         return agent
 
-    with TestClient(create_app(agent_factory=agent_factory), raise_server_exceptions=False) as client:
+    with TestClient(
+        create_app(agent_factory=agent_factory), raise_server_exceptions=False
+    ) as client:
         yield client, agent, factory_calls
 
 
@@ -87,9 +88,7 @@ def test_missing_or_invalid_key_rejects_without_running_agent(api_client, header
     response = client.post("/api/v1/ask", headers=headers, json={"question": "Question"})
 
     assert response.status_code == 401
-    assert response.json() == {
-        "error": {"code": "unauthorized", "message": "API key tidak valid."}
-    }
+    assert response.json() == {"error": {"code": "unauthorized", "message": "API key tidak valid."}}
     assert agent.calls == []
 
 

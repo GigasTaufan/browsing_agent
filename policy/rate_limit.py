@@ -6,7 +6,6 @@ Menggunakan delay sederhana antar request ke domain yang sama.
 import threading
 import time
 from urllib.parse import urlparse
-from typing import Dict
 
 import config
 
@@ -17,7 +16,7 @@ class DomainRateLimiter:
     Jika slot berikutnya belum tiba, menunggu (sleep) di luar lock.
     """
 
-    def __init__(self, delay_seconds: float = None):
+    def __init__(self, delay_seconds: float | None = None):
         """
         Args:
             delay_seconds: Delay antar request ke domain yang sama.
@@ -25,7 +24,7 @@ class DomainRateLimiter:
         """
         self.delay_seconds = delay_seconds or config.RATE_LIMIT_PER_DOMAIN_SECONDS
         # domain -> timestamp slot berikutnya
-        self._next_allowed: Dict[str, float] = {}
+        self._next_allowed: dict[str, float] = {}
         self._lock = threading.Lock()
 
     def wait_if_needed(self, url: str) -> float:

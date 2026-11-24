@@ -6,21 +6,25 @@ Pluggable: arsitektur sudah siap untuk menambah provider lain.
 
 import re
 import time
-from langchain.tools import tool
+
 from ddgs import DDGS
+from langchain.tools import tool
 
 import config
-from agent.planner import check_and_increment, ToolLimitReached
-
-
-
+from agent.planner import ToolLimitReached, check_and_increment
 
 # --- Search Provider Abstraction ---
 # Siap untuk ditambah Google Custom Search, Brave Search, dll.
 
 _KNOWN_QUALITY_DOMAINS = {
-    ".edu", ".gov", ".ac.id", ".go.id", ".or.id",
-    ".wikipedia.org", ".britannica.com", ".stackoverflow.com",
+    ".edu",
+    ".gov",
+    ".ac.id",
+    ".go.id",
+    ".or.id",
+    ".wikipedia.org",
+    ".britannica.com",
+    ".stackoverflow.com",
 }
 
 
@@ -28,7 +32,7 @@ def _extract_url(result_line: str) -> str | None:
     """Ekstrak URL dari satu baris hasil pencarian."""
     match = re.search(r'https?://[^\s,;"\')\]]+', result_line)
     if match:
-        return match.group().rstrip(',').rstrip(']').rstrip(';')
+        return match.group().rstrip(",").rstrip("]").rstrip(";")
     return None
 
 
@@ -46,7 +50,7 @@ def _score_url(url: str) -> int:
     return 1
 
 
-def _rank_and_dedup(raw_results: str, max_results: int = None) -> str:
+def _rank_and_dedup(raw_results: str, max_results: int | None = None) -> str:
     """
     Deduplikasi hasil pencarian berdasarkan URL,
     lalu rank berdasarkan kualitas domain.
@@ -56,29 +60,32 @@ def _rank_and_dedup(raw_results: str, max_results: int = None) -> str:
 
     lines = raw_results.splitlines()
 
-    # Ekstrak URL dari setiap baris
-    entries = []
+    # Ekstrak URL dari setiap baris: (line, url, score)
+    entries: list[tuple[str, str, int]] = []
     for line in lines:
         url = _extract_url(line)
         if url:
-            entries.append({"line": line, "url": url, "score": _score_url(url)})
+            entries.append((line, url, _score_url(url)))
 
     # Dedup berdasarkan URL (canonical: lowercase, tanpa trailing slash)
     seen = set()
-    unique = []
+    unique: list[tuple[str, str, int]] = []
     for entry in entries:
-        canon = entry["url"].rstrip('/').lower()
+        canon = entry[1].rstrip("/").lower()
         if canon not in seen:
             seen.add(canon)
             unique.append(entry)
 
     # Sort descending by score, lalu batasi jumlah
-    ranked = sorted(unique, key=lambda x: x["score"], reverse=True)[:max_results]
+    ranked = sorted(unique, key=lambda entry: entry[2], reverse=True)[:max_results]
 
-    return "\n".join(e["line"] for e in ranked) if ranked else ""
+    return "\n".join(entry[0] for entry in ranked) if ranked else ""
 
 
-@tool("search_tool", description="Lakukan pencarian web menggunakan DuckDuckGo untuk mendapatkan daftar link dan ringkasan.")
+@tool(
+    "search_tool",
+    description="Lakukan pencarian web menggunakan DuckDuckGo untuk mendapatkan daftar link dan ringkasan.",
+)
 def search_tool(query: str) -> str:
     """
     Mencari web menggunakan DuckDuckGo dan mengembalikan hasil yang sudah
@@ -118,9 +125,11 @@ def search_tool(query: str) -> str:
                 links = re.findall(r'https?://[^\s,;"\')\]]+', formatted)
 
                 if links:
-                    print(f"[Search Tool]: Ditemukan {len(links)} sumber relevan (setelah ranking):")
+                    print(
+                        f"[Search Tool]: Ditemukan {len(links)} sumber relevan (setelah ranking):"
+                    )
                     for i, link in enumerate(links[:3], 1):
-                        clean_link = link.rstrip(',').rstrip(']').rstrip(';')
+                        clean_link = link.rstrip(",").rstrip("]").rstrip(";")
                         print(f"   {i}. {clean_link}")
 
                 print(f"[Search Tool]: Sukses mendapatkan hasil pencarian (backend={backend}).")
@@ -131,7 +140,9 @@ def search_tool(query: str) -> str:
 
         except Exception as e:
             last_error = e
-            print(f"[Search Tool]: Gagal melakukan pencarian dengan backend '{backend}' (attempt {attempt}/3): {e}")
+            print(
+                f"[Search Tool]: Gagal melakukan pencarian dengan backend '{backend}' (attempt {attempt}/3): {e}"
+            )
             if attempt < len(backends):
                 wait = attempt  # 1s, 2s
                 time.sleep(wait)

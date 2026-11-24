@@ -33,6 +33,9 @@ services:
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro,Z
     networks:
       - backend
+      # Nginx butuh satu network non-internal agar port publish 8080 berfungsi;
+      # container yang hanya menempel di network internal tidak menerima trafik host.
+      - egress
 
 networks:
   backend:

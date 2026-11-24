@@ -1,9 +1,9 @@
 """Authenticated FastAPI interface for the browsing agent."""
 
-from contextlib import asynccontextmanager
 import hmac
 import os
-from typing import Callable
+from collections.abc import Callable
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 from starlette.concurrency import run_in_threadpool
 
-from main import define_agent, load_llm, run_agent
+from main import define_agent, load_llm, run_agent, setup_tracing
 from tools.fetch import browse_tool, fetcher_cleanup
 from tools.search import search_tool
 
@@ -81,6 +81,7 @@ def create_app(agent_factory: Callable[[], object] | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        setup_tracing()
         try:
             app.state.agent = factory()
             yield

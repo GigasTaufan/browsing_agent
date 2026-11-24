@@ -1,7 +1,7 @@
 """Regresi batas URL dan pemilihan fallback browser tanpa akses jaringan."""
 
-from concurrent.futures import ThreadPoolExecutor
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -10,7 +10,6 @@ import pytest
 import config
 from agent.planner import AgentRunState
 from tools import fetch
-
 
 
 @pytest.fixture
@@ -132,6 +131,7 @@ def test_browser_access_and_cleanup_are_serialized(fetcher, monkeypatch):
             return SimpleNamespace(text="Browser article")
         finally:
             leave_browser()
+
     def quit_browser():
         cleanup_started.set()
         enter_browser()
@@ -170,6 +170,7 @@ def test_browser_access_and_cleanup_are_serialized(fetcher, monkeypatch):
         release_first_body.set()
         release_first_get.set()
         fetch._browser_instance = None
+
 
 def test_browser_uses_preinstalled_chromedriver_without_download(monkeypatch):
     monkeypatch.setenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")

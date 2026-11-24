@@ -3,10 +3,10 @@ Unit test untuk policy/rate_limit.py.
 Mock waktu untuk verifikasi delay.
 """
 
-from concurrent.futures import ThreadPoolExecutor
 import threading
-
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
+
 from policy.rate_limit import DomainRateLimiter
 
 

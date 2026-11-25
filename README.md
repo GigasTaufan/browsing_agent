@@ -112,6 +112,8 @@ uv run python -m pytest tests/
 
 ## Konfigurasi Environment
 
+Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `config.py` tidak menyimpan nilai default; variabel yang hilang membuat startup gagal cepat (fail-fast) dengan pesan error yang menyebut nama variabelnya. Kolom "Default" di bawah adalah nilai referensi dari `.env.example`.
+
 | Variabel | Default | Keterangan |
 |----------|---------|------------|
 | `MODELHUB_API_KEY` | — (wajib untuk provider utama) | Jika diisi, aplikasi memakai ModelHub sebagai LLM utama |
@@ -121,9 +123,15 @@ uv run python -m pytest tests/
 | `AZURE_OPENAI_API_KEY` | — (fallback Azure) | API Key Azure OpenAI |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o-mini` | Nama deployment model Azure |
 | `AZURE_OPENAI_PREVIEW_API_VERSION` | — (fallback Azure) | Versi API preview |
+| `LLM_TEMPERATURE` | `0.7` | Temperature LLM (inferensi) |
+| `LLM_MAX_TOKENS` | `1500` | Maksimum token jawaban LLM |
+| `LLM_TIMEOUT` | `60` | Timeout request LLM (detik) |
+| `LLM_MAX_RETRIES` | `2` | Retry otomatis request LLM |
 | `MLFLOW_TRACING_ENABLED` | `true` | Aktifkan MLflow GenAI tracing untuk LangChain |
 | `MLFLOW_TRACKING_URI` | `http://10.60.144.48:5000` | URI server MLflow untuk tracing |
 | `MLFLOW_EXPERIMENT_NAME` | `browsing-agent-dev` | Nama experiment MLflow |
+| `MLFLOW_HTTP_TIMEOUT` | `5` | Timeout REST call MLflow (detik) |
+| `MLFLOW_PREFLIGHT_TIMEOUT` | `2.0` | Timeout pre-flight TCP check MLflow saat startup (detik) |
 | `SEARCH_PROVIDER` | `duckduckgo` | Provider pencarian: `duckduckgo` \| `searxng` |
 | `SEARXNG_BASE_URL` | `http://searxng:8080` (di Compose) | Base URL SearXNG JSON API |
 | `SEARCH_FALLBACK_ENABLED` | `true` | Fallback ke provider lain jika provider utama gagal |
@@ -132,18 +140,24 @@ uv run python -m pytest tests/
 | `MAX_SEARCH_RESULTS` | `5` | Maksimum hasil search yang ditampilkan |
 | `REQUEST_TIMEOUT` | `30` | Timeout HTTP request (detik) |
 | `BROWSER_FALLBACK_ENABLED` | `true` | Aktifkan Selenium fallback |
+| `FETCH_MAX_RETRIES` | `3` | Retry fetch HTTP dengan exponential backoff |
+| `BROWSER_WAIT_TIMEOUT` | `10` | Timeout explicit wait Selenium (detik) |
+| `FETCH_MAX_CONTENT_CHARS` | `3000` | Maksimum karakter konten yang dikirim ke LLM per halaman |
 | `USER_AGENT` | `BrowsingAgent/0.1` | User-Agent untuk pengambilan halaman web |
 | `RATE_LIMIT_PER_DOMAIN_SECONDS` | `1.0` | Delay antar request ke domain sama (detik) |
 | `ROBOTS_FAIL_OPEN` | `true` | `true`: izinkan jika robots.txt gagal di-fetch (non-404); `false`: tolak |
+| `ROBOTS_CACHE_TTL_SECONDS` | `3600` | TTL cache robots.txt per domain (detik) |
 | `CHUNK_SIZE` | `2000` | Ukuran chunk konten halaman |
 | `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` (di Compose) | URL Redis untuk rate limit per API key; kosong = nonaktif |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `10` | Maksimum request per API key per menit |
+| `RATE_LIMIT_REDIS_TIMEOUT` | `1.0` | Timeout socket Redis (detik) |
+| `RATE_LIMIT_WINDOW_SECONDS` | `60` | Ukuran window fixed-window rate limit (detik) |
 | `MAX_CONCURRENT_AGENT_RUNS` | `4` | Maksimum agent yang berjalan konkuren; sisanya ditolak 429 |
 | `MAX_QUESTION_LENGTH` | `2000` | Panjang maksimum pertanyaan (karakter) |
 
 Untuk menjalankan contoh penggunaan API ModelHub secara langsung:
 ```bash
-uv run docs/modelhub.py
+uv run scripts/modelhub.py
 ```
 
 ## API melalui Docker Compose

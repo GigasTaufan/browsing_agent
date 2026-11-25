@@ -81,7 +81,7 @@ class HttpFetcher:
             timeout=config.REQUEST_TIMEOUT,
             follow_redirects=True,
         )
-        self.max_retries = 3
+        self.max_retries = config.FETCH_MAX_RETRIES
 
     def fetch(self, url: str) -> tuple[int, str, str]:
         """
@@ -227,7 +227,7 @@ def browse_tool(url: str) -> str:
                 driver = _get_browser()
                 driver.get(url)
                 # Explicit wait: deteksi <body> hadir, maksimal 10 detik.
-                body_element = WebDriverWait(driver, 10).until(
+                body_element = WebDriverWait(driver, config.BROWSER_WAIT_TIMEOUT).until(
                     EC.presence_of_element_located((By.TAG_NAME, "body"))
                 )
                 body_text = body_element.text
@@ -258,11 +258,13 @@ def _store_evidence(extracted) -> None:
         state.evidence_store.add(extracted)
 
 
-def _truncated_for_llm(extracted, max_chars: int = 3000) -> str:
+def _truncated_for_llm(extracted, max_chars: int | None = None) -> str:
     """
     Konversi extracted page ke string yang siap dikirim ke LLM.
     Termasuk title + text (truncate jika terlalu panjang).
     """
+    if max_chars is None:
+        max_chars = config.FETCH_MAX_CONTENT_CHARS
     parts = []
     if extracted.title:
         parts.append(f"Judul: {extracted.title}")

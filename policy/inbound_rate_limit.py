@@ -28,10 +28,12 @@ class RedisRateLimiter:
     INCR + EXPIRE (hanya saat bucket baru) — cukup atomik untuk fixed window.
     """
 
-    def __init__(self, client, limit: int, window_seconds: int = 60):
+    def __init__(self, client, limit: int, window_seconds: int | None = None):
         self._client = client
         self._limit = limit
-        self._window_seconds = window_seconds
+        self._window_seconds = (
+            window_seconds if window_seconds is not None else config.RATE_LIMIT_WINDOW_SECONDS
+        )
 
     async def check(self, api_key: str) -> bool:
         """
@@ -72,7 +74,7 @@ def build_rate_limiter():
 
     client = Redis.from_url(
         config.RATE_LIMIT_REDIS_URL,
-        socket_timeout=1,
-        socket_connect_timeout=1,
+        socket_timeout=config.RATE_LIMIT_REDIS_TIMEOUT,
+        socket_connect_timeout=config.RATE_LIMIT_REDIS_TIMEOUT,
     )
     return RedisRateLimiter(client, limit=config.RATE_LIMIT_REQUESTS_PER_MINUTE)

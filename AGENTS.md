@@ -91,7 +91,7 @@ uv run python -m pytest tests/
 - **Penamaan**: `snake_case` untuk fungsi dan variabel.
 - **Tools**: Didekorasi `@tool` LangChain; deskripsi jelas untuk LLM.
 - **Error handling**: `try/except` sederhana; UX via `print` ke stdout, log operasional via `oplog.log_event` (JSON lines ke stderr).
-- **Konfigurasi**: Terpusat di `config.py` + `.env`; tidak ada magic numbers di modul lain.
+- **Konfigurasi**: `config.py` hanya membaca dan memvalidasi `.env` (fail-fast, tanpa default hardcoded); semua parameter operasional wajib di `.env` (`.env.example` adalah template kanonik); tidak ada magic numbers di modul lain.
 - **Import grouping**: stdlib → pihak ketiga → modul lokal; ruff (`I`) menegakkan urutan ini.
 - **Quality gate** (wajib hijau sebelum commit):
   ```bash
@@ -105,7 +105,7 @@ uv run python -m pytest tests/
 uv run python -m pytest tests/
 ```
 
-- `tests/conftest.py` menonaktifkan async trace queue MLflow agar exit pytest cepat.
+- `tests/conftest.py` menonaktifkan async trace queue MLflow agar exit pytest cepat, dan mengisi nilai test untuk variabel wajib (config tanpa default; .env lokal menang).
 - `tests/test_api.py` — kontrak API (auth, error envelope, rate limit 429, concurrency 429, panjang pertanyaan) tanpa LLM/network.
 - `tests/test_inbound_rate_limit.py` — limiter Redis dengan fake client (fail-open, hashing, window).
 - `tests/test_search_provider.py` — seleksi provider, fallback, atribut span MLflow.
@@ -126,26 +126,32 @@ uv run python -m pytest tests/
 
 # Environment Variables
 
-Salin dari `.env.example`. Kredensial wajib: `MODELHUB_API_KEY` (atau kredensial Azure
-untuk fallback) dan `API_ALLOWED_KEYS` + `UI_API_KEY`. Variabel operasional memiliki
-default — lihat tabel lengkap di `README.md`. Ringkasan:
+Salin dari `.env.example` (template kanonik — `config.py` tanpa default; variabel wajib
+yang hilang memfail-fast startup). Kredensial wajib: `MODELHUB_API_KEY` (atau kredensial
+Azure untuk fallback) dan `API_ALLOWED_KEYS` + `UI_API_KEY`. Nilai referensi variabel
+operasional ada di `.env.example` — ringkasan:
 
 | Variable | Default | Keterangan |
 |----------|---------|------------|
 | `MODELHUB_API_KEY` / `MODELHUB_BASE_URL` / `MODELHUB_MODEL_NAME` | — / ModelHub / `gpt-4o-mini` | Provider LLM utama |
 | `AZURE_OPENAI_*` | — | Fallback (opsional) |
+| `LLM_TEMPERATURE` / `LLM_MAX_TOKENS` / `LLM_TIMEOUT` / `LLM_MAX_RETRIES` | `0.7` / `1500` / `60` / `2` | Parameter inferensi LLM |
 | `API_ALLOWED_KEYS`, `UI_API_KEY` | — | Auth API & UI |
 | `SEARCH_PROVIDER` | `duckduckgo` | `duckduckgo` \| `searxng` |
 | `SEARXNG_BASE_URL` | `http://searxng:8080` (Compose) | JSON API SearXNG |
 | `SEARCH_FALLBACK_ENABLED` | `true` | Fallback antar provider |
 | `MLFLOW_TRACING_ENABLED` / `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT_NAME` | `true` / — / `browsing-agent-dev` | GenAI tracing |
+| `MLFLOW_HTTP_TIMEOUT` / `MLFLOW_PREFLIGHT_TIMEOUT` | `5` / `2.0` | Timeout REST MLflow & pre-flight TCP (detik) |
 | `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` (Compose) | Kosong = nonaktif |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `10` | Per API key per menit |
+| `RATE_LIMIT_REDIS_TIMEOUT` / `RATE_LIMIT_WINDOW_SECONDS` | `1.0` / `60` | Timeout socket Redis & window (detik) |
 | `MAX_CONCURRENT_AGENT_RUNS` | `4` | Konkurensi agent; sisanya 429 |
 | `MAX_QUESTION_LENGTH` | `2000` | Panjang pertanyaan maks |
 | `ROBOTS_FAIL_OPEN` | `true` | robots.txt gagal (non-404): izinkan/tolak |
+| `ROBOTS_CACHE_TTL_SECONDS` | `3600` | TTL cache robots.txt (detik) |
 | `MAX_TOOL_CALLS` / `MAX_URLS_PER_QUERY` / `MAX_SEARCH_RESULTS` | `5` / `3` / `5` | Tool limits |
 | `REQUEST_TIMEOUT` / `BROWSER_FALLBACK_ENABLED` | `30` / `true` | Fetching |
+| `FETCH_MAX_RETRIES` / `BROWSER_WAIT_TIMEOUT` / `FETCH_MAX_CONTENT_CHARS` | `3` / `10` / `3000` | Retry fetch, wait Selenium, truncation konten |
 | `USER_AGENT` / `RATE_LIMIT_PER_DOMAIN_SECONDS` | `BrowsingAgent/0.1` / `1.0` | Safe crawling |
 | `CHUNK_SIZE` | `2000` | Ukuran chunk konten |
 

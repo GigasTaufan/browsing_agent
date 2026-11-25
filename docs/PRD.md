@@ -36,8 +36,8 @@ Aplikasi saat ini telah berkembang dari MVP menjadi **v1.0** dengan arsitektur m
 | Aspek | Deskripsi |
 |-------|-----------|
 | **Entry Point** | `main.py` (modular) |
-| **LLM** | AzureChatOpenAI (`gpt-4o-mini` default) |
-| **Search** | DuckDuckGo (`DuckDuckGoSearchResults`) dengan backend retry (`lite` → `auto`) |
+| **LLM** | ModelHub via `ChatOpenAI` (utama); Azure OpenAI hanya fallback |
+| **Search** | Pluggable: DuckDuckGo (`ddgs`) atau SearXNG self-hosted, dengan fallback antar provider |
 | **Browser** | Selenium headless Chrome sebagai fallback; HTTP-first via `httpx` |
 | **Tools** | `search_tool`, `browse_tool` |
 | **Extraction** | `trafilatura` primary, `BeautifulSoup` fallback — terstruktur (title, headings, text, links) |
@@ -153,7 +153,7 @@ browsing_agent/
 ## 5. Non-Functional Requirements
 
 ### NFR-1: Keamanan
-- **NFR-1.1**: Kredensial Azure OpenAI dan search provider disimpan di `.env` (tidak di-commit).
+- **NFR-1.1**: Kredensial LLM (ModelHub/Azure) dan search provider disimpan di `.env` (tidak di-commit).
 - **NFR-1.2**: Tidak ada logging kredensial ke stdout/file.
 - **NFR-1.3**: Input pengguna tidak langsung dieksekusi sebagai kode.
 
@@ -414,10 +414,9 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 |---------|----------|
 | `python-dotenv` | Load variabel lingkungan dari `.env` |
 | `langchain` | Framework LLM & agent |
-| `langchain-openai` | Integrasi Azure OpenAI |
-| `langchain-community` | Tools komunitas (DuckDuckGo) |
+| `langchain-openai` | Integrasi OpenAI-compatible (ModelHub utama, Azure fallback) |
 | `langchain-core` | Komponen inti LangChain |
-| `langchainhub` | Hub prompts |
+| `ddgs` | Pencarian DuckDuckGo |
 
 ### 9.2 Web & Browser
 | Library | Kegunaan |
@@ -447,10 +446,13 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 ### 9.6 Environment Variables
 | Variable | Required | Default | Keterangan |
 |----------|----------|---------|------------|
-| `AZURE_OPENAI_ENDPOINT` | Wajib | — | Endpoint Azure OpenAI |
-| `AZURE_OPENAI_API_KEY` | Wajib | — | API Key Azure OpenAI |
+| `MODELHUB_API_KEY` | Wajib | — | API Key ModelHub (provider utama) |
+| `MODELHUB_BASE_URL` | Opsional | ModelHub | Base URL ModelHub |
+| `MODELHUB_MODEL_NAME` | Opsional | `gpt-4o-mini` | Nama model |
+| `AZURE_OPENAI_ENDPOINT` | Opsional | — | Endpoint Azure OpenAI (fallback) |
+| `AZURE_OPENAI_API_KEY` | Opsional | — | API Key Azure OpenAI (fallback) |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | Opsional | `gpt-4o-mini` | Nama deployment |
-| `AZURE_OPENAI_PREVIEW_API_VERSION` | Wajib | — | Versi API preview |
+| `AZURE_OPENAI_PREVIEW_API_VERSION` | Opsional | — | Versi API preview |
 | `MAX_TOOL_CALLS` | Opsional | `5` | Batas pemanggilan tool per query |
 | `MAX_URLS_PER_QUERY` | Opsional | `3` | Batas URL yang di-fetch per query |
 | `REQUEST_TIMEOUT` | Opsional | `30` | Timeout request (detik) |

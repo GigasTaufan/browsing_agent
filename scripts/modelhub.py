@@ -14,8 +14,8 @@ client = OpenAI(
 response = client.chat.completions.create(
     model=os.getenv("MODELHUB_MODEL_NAME"),  # type: ignore[arg-type]
     messages=[
-        {"role": "system", "content": "Anda adalah asisten layanan pelanggan."},
-        {"role": "user", "content": "Bagaimana cara mengaktifkan paket data?"},
+        {"role": "system", "content": "Anda adalah asisten yang membantu user."},
+        {"role": "user", "content": "Bagaimana cara memanggil 911?"},
     ],
     temperature=0.7,
 )

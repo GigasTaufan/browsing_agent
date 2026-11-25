@@ -1,4 +1,4 @@
-"""Unit test konfigurasi: default nilai operasional dan parsing yang fail-fast."""
+"""Unit test konfigurasi: pembacaan .env strict tanpa default hardcoded (fail-fast)."""
 
 import importlib
 
@@ -6,18 +6,39 @@ import pytest
 
 import config
 
-_OPERATIONAL_VARS = [
+_REQUIRED_VARS = [
+    "LLM_TEMPERATURE",
+    "LLM_MAX_TOKENS",
+    "LLM_TIMEOUT",
+    "LLM_MAX_RETRIES",
     "MAX_TOOL_CALLS",
     "MAX_URLS_PER_QUERY",
     "MAX_SEARCH_RESULTS",
     "REQUEST_TIMEOUT",
     "BROWSER_FALLBACK_ENABLED",
+    "FETCH_MAX_RETRIES",
+    "BROWSER_WAIT_TIMEOUT",
+    "FETCH_MAX_CONTENT_CHARS",
     "USER_AGENT",
     "RATE_LIMIT_PER_DOMAIN_SECONDS",
+    "ROBOTS_FAIL_OPEN",
+    "ROBOTS_CACHE_TTL_SECONDS",
+    "SEARCH_PROVIDER",
+    "SEARCH_FALLBACK_ENABLED",
+    "MLFLOW_TRACING_ENABLED",
     "CHUNK_SIZE",
-    "AZURE_OPENAI_DEPLOYMENT_NAME",
-    "MODELHUB_BASE_URL",
-    "MODELHUB_MODEL_NAME",
+    "RATE_LIMIT_REQUESTS_PER_MINUTE",
+    "RATE_LIMIT_REDIS_TIMEOUT",
+    "RATE_LIMIT_WINDOW_SECONDS",
+    "MAX_CONCURRENT_AGENT_RUNS",
+    "MAX_QUESTION_LENGTH",
+]
+
+_MLFLOW_VARS = [
+    "MLFLOW_TRACKING_URI",
+    "MLFLOW_EXPERIMENT_NAME",
+    "MLFLOW_HTTP_TIMEOUT",
+    "MLFLOW_PREFLIGHT_TIMEOUT",
 ]
 
 
@@ -28,35 +49,55 @@ def _restore_config():
     importlib.reload(config)
 
 
-def test_operational_defaults_when_env_missing(monkeypatch):
+def test_missing_required_vars_fail_fast(monkeypatch):
     # Isolasi dari file .env lokal agar hanya os.environ yang dibaca.
     monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: None)
-    for name in _OPERATIONAL_VARS:
+    for name in _REQUIRED_VARS + _MLFLOW_VARS:
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("MLFLOW_TRACING_ENABLED", "true")
 
-    reloaded = importlib.reload(config)
-
-    assert reloaded.MAX_TOOL_CALLS == 5
-    assert reloaded.MAX_URLS_PER_QUERY == 3
-    assert reloaded.MAX_SEARCH_RESULTS == 5
-    assert reloaded.REQUEST_TIMEOUT == 30
-    assert reloaded.BROWSER_FALLBACK_ENABLED is True
-    assert reloaded.USER_AGENT == "BrowsingAgent/0.1"
-    assert reloaded.RATE_LIMIT_PER_DOMAIN_SECONDS == 1.0
-    assert reloaded.CHUNK_SIZE == 2000
-    assert reloaded.AZURE_OPENAI_DEPLOYMENT_NAME == "gpt-4o-mini"
-    assert reloaded.MODELHUB_BASE_URL == "https://api-modelhub.aiplayground.id/v1"
-    assert reloaded.MODELHUB_MODEL_NAME == "gpt-4o-mini"
+    with pytest.raises(ValueError, match="LLM_TEMPERATURE"):
+        importlib.reload(config)
 
 
-def test_blank_operational_value_falls_back_to_default(monkeypatch):
+def test_blank_required_value_treated_as_missing(monkeypatch):
     monkeypatch.setenv("MAX_TOOL_CALLS", "  ")
-    monkeypatch.setenv("BROWSER_FALLBACK_ENABLED", "")
+
+    with pytest.raises(ValueError, match="MAX_TOOL_CALLS"):
+        importlib.reload(config)
+
+
+def test_mlflow_group_optional_when_tracing_disabled(monkeypatch):
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: None)
+    for name in _MLFLOW_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("MLFLOW_TRACING_ENABLED", "false")
 
     reloaded = importlib.reload(config)
 
-    assert reloaded.MAX_TOOL_CALLS == 5
-    assert reloaded.BROWSER_FALLBACK_ENABLED is True
+    assert reloaded.MLFLOW_TRACING_ENABLED is False
+    assert reloaded.MLFLOW_HTTP_TIMEOUT is None
+    assert reloaded.MLFLOW_PREFLIGHT_TIMEOUT is None
+
+
+def test_mlflow_group_required_when_tracing_enabled(monkeypatch):
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: None)
+    for name in _MLFLOW_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("MLFLOW_TRACING_ENABLED", "true")
+
+    with pytest.raises(ValueError, match="MLFLOW_TRACKING_URI"):
+        importlib.reload(config)
+
+
+def test_values_come_from_env_not_code(monkeypatch):
+    monkeypatch.setenv("MAX_TOOL_CALLS", "7")
+    monkeypatch.setenv("LLM_TEMPERATURE", "0.123")
+
+    reloaded = importlib.reload(config)
+
+    assert reloaded.MAX_TOOL_CALLS == 7
+    assert reloaded.LLM_TEMPERATURE == 0.123
 
 
 def test_invalid_integer_raises_clear_error(monkeypatch):

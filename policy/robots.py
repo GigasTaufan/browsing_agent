@@ -14,7 +14,7 @@ import config
 # Cache robots.txt parser per domain: {domain: RobotFileParser}
 _robots_cache: dict[str, RobotFileParser] = {}
 _cache_timestamp: dict[str, float] = {}
-_CACHE_TTL_SECONDS = 3600  # Cache robots.txt selama 1 jam
+_CACHE_TTL_SECONDS = config.ROBOTS_CACHE_TTL_SECONDS
 
 
 def _get_robots_url(target_url: str) -> str:

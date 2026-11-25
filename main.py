@@ -8,6 +8,7 @@ import argparse
 import os
 import socket
 import sys
+import tomllib
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -20,6 +21,15 @@ from agent.planner import AgentRunResult, AgentRunState
 from policy.guardrails import is_query_blocked
 from tools.fetch import browse_tool, fetcher_cleanup
 from tools.search import search_tool
+
+
+def _get_version() -> str:
+    """Baca versi dari pyproject.toml; fallback bila file tidak tersedia."""
+    try:
+        with open("pyproject.toml", "rb") as f:
+            return str(tomllib.load(f)["project"]["version"])
+    except OSError, KeyError, tomllib.TOMLDecodeError:
+        return "unknown"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -41,7 +51,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.0",
+        version=f"%(prog)s {_get_version()}",
     )
     return parser.parse_args()
 
@@ -69,48 +79,32 @@ def setup_tracing(verbose: bool = False):
             print("[Tracing]: MLflow tracing dinonaktifkan (MLFLOW_TRACING_ENABLED=false).")
         return None
 
+    # config menjamin URI & timeout terisi saat tracing aktif; guard defensif untuk mypy.
+    tracking_uri = config.MLFLOW_TRACKING_URI or ""
+    preflight_timeout = config.MLFLOW_PREFLIGHT_TIMEOUT or 2.0
+
     # Guard: server tidak terjangkau -> skip cepat, jangan sampai startup menggantung.
-    if not _mlflow_reachable(config.MLFLOW_TRACKING_URI):
-        print(
-            f"[Tracing]: Server MLflow tidak terjangkau ({config.MLFLOW_TRACKING_URI}). "
-            "Lanjutkan tanpa tracing."
-        )
+    if not _mlflow_reachable(tracking_uri, preflight_timeout):
+        print(f"[Tracing]: Server MLflow tidak terjangkau ({tracking_uri}). Lanjut tanpa tracing.")
         return None
 
     try:
         import mlflow
 
         # Hard timeout untuk semua REST call MLflow (default: tanpa timeout).
-        os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", "5")
-        mlflow.set_tracking_uri(config.MLFLOW_TRACKING_URI)
-        mlflow.set_experiment(config.MLFLOW_EXPERIMENT_NAME)
+        os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", str(config.MLFLOW_HTTP_TIMEOUT or 5))
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_experiment(config.MLFLOW_EXPERIMENT_NAME or "browsing-agent-dev")
         # Autolog LangChain: trace otomatis untuk LLM, tools, dan agent graph.
         mlflow.langchain.autolog()
         if verbose:
             print(
-                f"[Tracing]: MLflow tracing aktif -> {config.MLFLOW_TRACKING_URI} "
+                f"[Tracing]: MLflow tracing aktif -> {tracking_uri} "
                 f"(experiment: {config.MLFLOW_EXPERIMENT_NAME})"
             )
         return mlflow
     except Exception as e:
         print(f"[Tracing]: Gagal mengaktifkan MLflow tracing ({e}). Lanjut tanpa tracing.")
-        return None
-
-    try:
-        import mlflow
-
-        mlflow.set_tracking_uri(config.MLFLOW_TRACKING_URI)
-        mlflow.set_experiment(config.MLFLOW_EXPERIMENT_NAME)
-        # Autolog LangChain: trace otomatis untuk LLM, tools, dan agent graph.
-        mlflow.langchain.autolog()
-        if verbose:
-            print(
-                f"[Tracing]: MLflow tracing aktif -> {config.MLFLOW_TRACKING_URI} "
-                f"(experiment: {config.MLFLOW_EXPERIMENT_NAME})"
-            )
-        return mlflow
-    except Exception as e:
-        print(f"[Tracing]: Gagal mengaktifkan MLflow tracing ({e}). Lanjutkan tanpa tracing.")
         return None
 
 
@@ -128,10 +122,10 @@ def load_llm(verbose: bool = False):
             base_url=config.MODELHUB_BASE_URL,
             model=config.MODELHUB_MODEL_NAME,
             default_headers={"User-Agent": "curl/8.0"},
-            temperature=0.7,
-            max_tokens=1500,
-            timeout=60,
-            max_retries=2,
+            temperature=config.LLM_TEMPERATURE,
+            max_tokens=config.LLM_MAX_TOKENS,
+            timeout=config.LLM_TIMEOUT,
+            max_retries=config.LLM_MAX_RETRIES,
         )
         if verbose:
             print("[Config]: LLM ModelHub loaded.")
@@ -160,10 +154,10 @@ def load_llm(verbose: bool = False):
             azure_endpoint=config.AZURE_OPENAI_ENDPOINT,
             azure_deployment=config.AZURE_OPENAI_DEPLOYMENT_NAME,
             api_version=config.AZURE_OPENAI_PREVIEW_API_VERSION,
-            temperature=0.7,
-            max_tokens=1500,
-            timeout=60,
-            max_retries=2,
+            temperature=config.LLM_TEMPERATURE,
+            max_tokens=config.LLM_MAX_TOKENS,
+            timeout=config.LLM_TIMEOUT,
+            max_retries=config.LLM_MAX_RETRIES,
         )
         if verbose:
             print("[Config]: LLM Azure loaded.")

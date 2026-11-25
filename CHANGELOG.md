@@ -4,6 +4,23 @@ Semua perubahan signifikan pada proyek ini didokumentasikan di file ini.
 Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/),
 dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-11-25
+
+### Added
+
+- Parameter operasional baru di `.env` (menggantikan nilai hardcoded): `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`, `LLM_TIMEOUT`, `LLM_MAX_RETRIES`, `MLFLOW_HTTP_TIMEOUT`, `MLFLOW_PREFLIGHT_TIMEOUT`, `FETCH_MAX_RETRIES`, `BROWSER_WAIT_TIMEOUT`, `FETCH_MAX_CONTENT_CHARS`, `ROBOTS_CACHE_TTL_SECONDS`, `RATE_LIMIT_REDIS_TIMEOUT`, `RATE_LIMIT_WINDOW_SECONDS`.
+
+### Changed
+
+- **BREAKING**: `config.py` kini strict reader/validator tanpa default hardcoded — semua parameter operasional wajib di `.env` (salin dari `.env.example`); yang hilang memfail-fast startup dengan pesan error. Grup MLflow hanya wajib jika tracing aktif.
+- `--version` CLI kini dibaca dari `pyproject.toml` (via `tomllib`), tidak lagi hardcoded.
+- PRD dan deskripsi `pyproject.toml` di-refresh sesuai stack ModelHub-primary.
+
+### Removed
+
+- Spec pra-ADLC `docs/superpowers/` (tidak lagi direferensikan).
+- Smoke script ModelHub dipindah ke `scripts/modelhub.py` (path README diperbarui).
+
 ## [1.1.0] - 2026-11-24
 
 ### Added

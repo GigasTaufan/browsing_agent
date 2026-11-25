@@ -168,7 +168,8 @@ Keputusan arsitektur signifikan didokumentasi di `docs/adr/`:
 # Release Process
 
 1. Pastikan quality gate hijau dan `CHANGELOG.md` sudah mencantumkan perubahan rilis.
-2. Bump `version` di `pyproject.toml` (semver).
+2. Bump `version` di `pyproject.toml` (semver), lalu jalankan `uv lock` agar `uv.lock`
+   mencatat versi baru (tanpa ini, `uv sync --locked` di Docker build CI akan gagal).
 3. Merge `development` → `main`.
 4. Tag annotated di `main`: `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`.
 

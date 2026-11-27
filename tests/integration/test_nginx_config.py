@@ -17,7 +17,7 @@ FRONTEND = ROOT / "frontend"
 
 def _location_block(config: str, path: str) -> str:
     match = re.search(
-        rf"location\s+{re.escape(path)}\s*\{{(?P<body>.*?)\n\s*\}}",
+        rf"location(?:\s+=\s+|\s+){re.escape(path)}\s*\{{(?P<body>.*?)\n\s*\}}",
         config,
         re.DOTALL,
     )
@@ -39,9 +39,20 @@ def test_ui_ingress_uses_server_key_and_never_serves_it_to_browser():
 
     assert "rewrite ^/ui-api/(.*)$ /api/$1 break;" in ui
     assert "proxy_pass $api_upstream;" in ui
-    assert 'proxy_set_header Authorization "Bearer ${UI_API_KEY}";' in ui
+    # ADR-0009: key service yang disuntik berbeda dari key browser.
+    assert 'proxy_set_header Authorization "Bearer ${UI_TO_API_KEY}";' in ui
+    assert "${UI_API_KEY}" not in config
     for asset in (FRONTEND / "index.html", FRONTEND / "app.js"):
         assert "UI_API_KEY" not in asset.read_text(encoding="utf-8")
+
+
+def test_readiness_proxies_api_health_instead_of_static_ok():
+    """Health check port publish harus gagal bila API mati (ADR-0009)."""
+    config = NGINX_TEMPLATE.read_text(encoding="utf-8")
+    ready = _location_block(config, "/healthz/ready")
+
+    assert "proxy_pass $api_upstream/healthz;" in ready
+    assert "return 200" not in ready
 
 
 def test_upstream_dns_is_reresolved_at_runtime():
@@ -134,6 +145,8 @@ HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
             network,
             "--env",
             f"UI_API_KEY={caller_key}",
+            "--env",
+            f"UI_TO_API_KEY={caller_key}",
             "--volume",
             f"{FRONTEND}:/usr/share/nginx/html:ro,Z",
             "--volume",

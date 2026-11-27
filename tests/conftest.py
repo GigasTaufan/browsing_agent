@@ -9,11 +9,14 @@ from dotenv import load_dotenv
 os.environ.setdefault("MLFLOW_ENABLE_ASYNC_TRACE_LOGGING", "false")
 
 # Nilai test untuk variabel operasional wajib (config.py tidak menyimpan default).
-# .env lokal (bila ada) menang; nilai di bawah hanya mengisi yang kosong,
-# sehingga suite tetap hermetic di CI tanpa file .env.
+# Nilai di bawah SELALU dipakai untuk test (menimpa .env lokal) agar hasil suite tidak
+# bergantung isi .env developer; hanya variabel yang tidak terdaftar di sini (opsional)
+# yang tetap dibaca dari .env.
 TEST_ENV_DEFAULTS = {
-    "API_ALLOWED_KEYS": "test-caller-key,test-ui-key",
+    "API_ALLOWED_KEYS": "test-caller-key,test-ui-key,test-ui-to-api-key",
     "UI_API_KEY": "test-ui-key",
+    "UI_TO_API_KEY": "test-ui-to-api-key",
+    "SEARXNG_SECRET": "test-searxng-secret",
     "MODELHUB_API_KEY": "test-modelhub-key",
     "MODELHUB_BASE_URL": "https://modelhub.test/v1",
     "MODELHUB_MODEL_NAME": "test-model",
@@ -50,10 +53,9 @@ TEST_ENV_DEFAULTS = {
 
 
 def apply_test_env_defaults() -> None:
-    """Isi variabel wajib yang belum ada di environment (tanpa menimpa yang sudah ada)."""
+    """Paksa nilai test untuk variabel wajib agar suite hermetic."""
     load_dotenv()
-    for name, value in TEST_ENV_DEFAULTS.items():
-        os.environ.setdefault(name, value)
+    os.environ.update(TEST_ENV_DEFAULTS)
 
 
 apply_test_env_defaults()

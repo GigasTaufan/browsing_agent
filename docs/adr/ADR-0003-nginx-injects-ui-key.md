@@ -1,6 +1,6 @@
 # ADR-0003: Nginx menyuntik UI API key, tidak pernah dikirim ke browser
 
-**Status:** Accepted
+**Status:** Accepted — nama key yang disuntik diubah menjadi `UI_TO_API_KEY` oleh ADR-0009
 
 ## Context
 

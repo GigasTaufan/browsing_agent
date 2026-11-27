@@ -19,13 +19,14 @@ Tanpa `--profile prod`, service `api` dan `nginx` tidak dijalankan (redis/searxn
 
 - Port publik hanya **:8080 (nginx)**. Port 8000 tidak dipublish (by design).
 - `egress` = jaringan dengan akses internet; `backend` = internal-only.
-- Nginx menyuntik `UI_API_KEY` ke header `/ui-api/*` (ADR-0003) — key tidak pernah ke browser.
+- Nginx menyuntik `UI_TO_API_KEY` ke header `/ui-api/*` (ADR-0003, ADR-0009) — key tidak pernah ke browser.
 
 ## 2. Prosedur Deploy / Upgrade
 
 1. `git pull` di mesin deploy.
 2. `docker compose --profile prod up -d --build` (api di-rebuild; nginx re-resolve otomatis ≤10s).
-3. Verifikasi: `curl http://localhost:8080/healthz` → `ok`; `docker compose ps` semua Up.
+3. Verifikasi: `curl http://localhost:8080/healthz/ready` → `ok` (proxy ke API); `curl http://localhost:8080/healthz`
+   hanya menandakan Nginx hidup; `docker compose ps` semua Up.
 4. Smoke: POST satu pertanyaan via `/ui-api/v1/ask` → jawaban + citations.
 
 Rollback: `git checkout <tag sebelumnya>` lalu ulang langkah 2.
@@ -37,21 +38,24 @@ port 8080 bentrok). Service tanpa profil (redis, searxng) tetap jalan.
 ## 3. Kredensial & Environment
 
 Wajib di `.env` (gitignored): `MODELHUB_API_KEY` (atau kredensial Azure), `API_ALLOWED_KEYS`,
-`UI_API_KEY`. `config.py` memvalidasi semuanya saat startup (fail-fast); `UI_API_KEY`
-harus tercantum di `API_ALLOWED_KEYS`. Variabel operasional lain juga wajib — lihat `.env.example`.
+`UI_API_KEY`, `UI_TO_API_KEY`. `config.py` memvalidasi semuanya saat startup (fail-fast);
+kedua key UI harus tercantum di `API_ALLOWED_KEYS`. Variabel operasional lain juga wajib — lihat `.env.example`.
 
-Rotasi `UI_API_KEY`: ganti nilai di `.env` → `docker compose --profile prod up -d --force-recreate nginx`.
+Rotasi `UI_API_KEY` (browser) dan/atau `UI_TO_API_KEY` (service Nginx→API): ganti nilai di `.env`
+→ `docker compose --profile prod up -d --force-recreate nginx api`.
 Tidak perlu redeploy frontend (key tidak pernah ada di aset statis).
 
 ## 4. Observability
 
-- **Health**: `GET /healthz` (nginx, selalu 200 jika nginx hidup); `docker compose ps`.
-- **Tracing**: MLflow di `MLFLOW_TRACKING_URI` (default `http://10.60.144.48:5000`),
+- **Health**: `GET /healthz` (Nginx hidup) dan `GET /healthz/ready` (200 hanya jika API hidup — dipakai healthcheck container); `docker compose ps`.
+- **Tracing**: MLflow di `MLFLOW_TRACKING_URI` (nilai intranet ada di `.env`),
   experiment `browsing-agent-dev`. Setiap run agent menghasilkan trace; span `search_tool`
   memiliki atribut `search.provider` dan `search.fallback_used`.
 - **Log operasional**: stderr container api berisi JSON lines dari `oplog`
-  (`api.ask_ok`, `api.ask_rejected`, `rate_limit.redis_error`):
+  (`api.request` per request: `outcome`, `status`, `duration_ms`; `rate_limit.redis_error`):
   `docker compose logs api | grep '"event"'`.
+- **Metrik**: `curl http://localhost:8080/api/metrics` (atau langsung `api:8000/metrics`)
+  → counter `browsing_agent_requests_total{outcome}` + ringkasan durasi (ADR-0010).
 - **Log aplikasi**: `docker compose logs api` (UX print + uvicorn access log).
 
 ## 5. Kegagalan Umum & Pemulihan
@@ -66,6 +70,10 @@ Aksi: set `SEARCH_PROVIDER=searxng` di `.env` (atau biarkan fallback aktif —
 Gejala: `rate_limit.redis_error` di log; `POST /api/v1/ask` membalas **503**
 `dependency_unavailable` (fail-closed, ADR-0006). `/healthz` tetap 200.
 Aksi: `docker compose restart redis`.
+
+### Metrik menunjukkan 503 dependency_unavailable
+Gejala: Redis tidak terjangkau; API fail-closed. Aksi: `docker compose restart redis`
+(lihat bagian Redis down).
 
 ### Nginx 502 setelah rebuild api
 Gejala: 502 beberapa detik setelah `docker compose up -d --build api`.

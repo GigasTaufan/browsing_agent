@@ -139,6 +139,7 @@ def test_agent_failure_returns_generic_500_envelope(api_client):
     }
     assert "private backend detail" not in response.text
     assert len(agent.calls) == 1
+    assert 'browsing_agent_requests_total{outcome="error"} 1' in client.get("/metrics").text
 
 
 def test_health_check_is_public_and_does_not_expose_configuration(api_client):
@@ -202,6 +203,7 @@ def test_rate_limit_exceeded_returns_429(monkeypatch):
         }
     }
     assert limiter.keys == [API_KEY]
+    assert 'browsing_agent_requests_total{outcome="rate_limited"} 1' in client.get("/metrics").text
 
 
 def test_redis_unavailable_returns_503_and_does_not_run_agent(monkeypatch):
@@ -248,3 +250,44 @@ def test_concurrency_cap_returns_429_when_exhausted(monkeypatch):
     assert busy.status_code == 429
     assert busy.json()["error"]["code"] == "server_busy"
     assert ok.status_code == 200
+
+
+def test_metrics_expose_outcome_counters_and_latency(api_client):
+    """ADR-0010: /metrics bisa di-scrape tanpa auth dan mencerminkan outcome request."""
+    client, agent, _ = api_client
+    client.post(
+        "/api/v1/ask",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        json={"question": "What is new?"},
+    )
+    client.post(
+        "/api/v1/ask", headers={"Authorization": "Bearer wrong-key"}, json={"question": "x"}
+    )
+
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert 'browsing_agent_requests_total{outcome="ok"} 1' in response.text
+    assert 'browsing_agent_requests_total{outcome="unauthorized"} 1' in response.text
+    assert "browsing_agent_request_duration_seconds_count 2" in response.text
+    assert len(agent.calls) == 1
+
+
+def test_ask_logs_single_request_event(api_client, monkeypatch):
+    """Satu event final per request (durasi/status) menggantikan pasangan ask_ok/ask_rejected."""
+    client, _, _ = api_client
+    events = []
+    monkeypatch.setattr(
+        "api.oplog.log_event", lambda event, **fields: events.append((event, fields))
+    )
+
+    client.post(
+        "/api/v1/ask",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        json={"question": "What is new?"},
+    )
+
+    assert [event for event, _ in events] == ["api.request"]
+    assert events[0][1]["outcome"] == "ok"
+    assert events[0][1]["status"] == 200
+    assert "duration_ms" in events[0][1]

@@ -81,9 +81,11 @@ def build_rate_limiter():
 
     from redis.asyncio import Redis
 
+    # wait_for_connection tidak memblokir startup bila Redis sedang restart (fail-closed tetap).
     client = Redis.from_url(
         config.RATE_LIMIT_REDIS_URL,
         socket_timeout=config.RATE_LIMIT_REDIS_TIMEOUT,
         socket_connect_timeout=config.RATE_LIMIT_REDIS_TIMEOUT,
+        wait_for_connection=False,
     )
     return RedisRateLimiter(client, limit=config.RATE_LIMIT_REQUESTS_PER_MINUTE)

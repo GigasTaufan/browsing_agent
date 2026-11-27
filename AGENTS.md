@@ -116,7 +116,7 @@ uv run python -m pytest tests/
 # Security Considerations
 
 - **Kredensial**: Hanya di `.env` (gitignored). Jangan pernah commit/print nilai key.
-- **UI key**: Frontend tidak menyimpan key; Nginx menyuntik `UI_API_KEY` (ADR-0003).
+- **UI key**: Frontend tidak menyimpan key; Nginx menyuntik `UI_TO_API_KEY` (ADR-0003, ADR-0009).
 - **Tool call limiting**: Per-run state ContextVar, di-reset tiap query (ADR-0001).
 - **robots.txt**: Dicek sebelum fetch; kebijakan fail-open/closed via `ROBOTS_FAIL_OPEN` (ADR-0004).
 - **Rate limiting**: Outbound per-domain delay; inbound per-API-key via Redis, fail-closed 503 (ADR-0006).
@@ -128,7 +128,7 @@ uv run python -m pytest tests/
 
 Salin dari `.env.example` (template kanonik — `config.py` tanpa default; variabel wajib
 yang hilang memfail-fast startup). Kredensial wajib: `MODELHUB_API_KEY` (atau kredensial
-Azure untuk fallback) dan `API_ALLOWED_KEYS` + `UI_API_KEY`. Nilai referensi variabel
+Azure untuk fallback) dan `API_ALLOWED_KEYS` + `UI_API_KEY` + `UI_TO_API_KEY`. Nilai referensi variabel
 operasional ada di `.env.example` — ringkasan:
 
 | Variable | Default | Keterangan |
@@ -136,7 +136,7 @@ operasional ada di `.env.example` — ringkasan:
 | `MODELHUB_API_KEY` / `MODELHUB_BASE_URL` / `MODELHUB_MODEL_NAME` | — / ModelHub / `gpt-4o-mini` | Provider LLM utama |
 | `AZURE_OPENAI_*` | — | Fallback (opsional) |
 | `LLM_TEMPERATURE` / `LLM_MAX_TOKENS` / `LLM_TIMEOUT` / `LLM_MAX_RETRIES` | `0.7` / `1500` / `60` / `2` | Parameter inferensi LLM |
-| `API_ALLOWED_KEYS`, `UI_API_KEY` | — | Auth API & UI |
+| `API_ALLOWED_KEYS`, `UI_API_KEY`, `UI_TO_API_KEY` | — | Auth API & UI (key browser vs key service Nginx) |
 | `SEARCH_PROVIDER` | `duckduckgo` | `duckduckgo` \| `searxng` |
 | `SEARXNG_BASE_URL` | `http://searxng:8080` (Compose) | JSON API SearXNG |
 | `SEARCH_FALLBACK_ENABLED` | `true` | Fallback antar provider |
@@ -167,6 +167,8 @@ Keputusan arsitektur signifikan didokumentasi di `docs/adr/`:
 - ADR-0006 — rate limit fail-closed (Redis down → 503)
 - ADR-0007 — cakupan guardrails sesuai PRD (automation, bukan kata)
 - ADR-0008 — blokir URL internal/privat (SSRF)
+- ADR-0009 — kredensial Nginx terpisah & `/healthz/ready`
+- ADR-0010 — observability minimal (`/metrics`, event `api.request`)
 
 # Release Process
 

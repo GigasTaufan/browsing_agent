@@ -173,14 +173,36 @@ def test_ui_api_key_must_be_allowed(monkeypatch):
     monkeypatch.setenv("API_ALLOWED_KEYS", "caller-key")
     monkeypatch.setenv("UI_API_KEY", "ui-key")
 
-    with pytest.raises(ValueError, match="UI_API_KEY harus tercantum"):
+    with pytest.raises(ValueError, match="harus tercantum di API_ALLOWED_KEYS"):
         importlib.reload(config)
+
+
+def test_nginx_service_key_must_be_allowed(monkeypatch):
+    _isolate_env(monkeypatch)
+    monkeypatch.setenv("API_ALLOWED_KEYS", "caller-key,ui-key")
+    monkeypatch.setenv("UI_API_KEY", "ui-key")
+    monkeypatch.setenv("UI_TO_API_KEY", "nginx-key")
+
+    with pytest.raises(ValueError, match="UI_TO_API_KEY"):
+        importlib.reload(config)
+
+
+def test_nginx_service_key_defaults_to_ui_key(monkeypatch):
+    _isolate_env(monkeypatch)
+    monkeypatch.setenv("API_ALLOWED_KEYS", "caller-key,ui-key")
+    monkeypatch.setenv("UI_API_KEY", "ui-key")
+    monkeypatch.delenv("UI_TO_API_KEY", raising=False)
+
+    reloaded = importlib.reload(config)
+
+    assert reloaded.UI_TO_API_KEY == "ui-key"
 
 
 def test_allowed_keys_parsed_without_blank_entries(monkeypatch):
     _isolate_env(monkeypatch)
     monkeypatch.setenv("API_ALLOWED_KEYS", " caller-a , ,ui-key, ")
     monkeypatch.setenv("UI_API_KEY", "ui-key")
+    monkeypatch.delenv("UI_TO_API_KEY", raising=False)
 
     reloaded = importlib.reload(config)
 

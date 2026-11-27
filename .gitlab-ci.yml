@@ -36,9 +36,7 @@ security:
     - pip install --no-cache-dir uv
   script:
     - uv sync --locked
-    - uv run --no-sync pip-audit --skip-editable
-  # Advisory upstream tidak boleh memblokir merge; review secara berkala.
-  allow_failure: true
+    - uv run --no-sync pip-audit
 
 docker:
   stage: docker

@@ -43,7 +43,7 @@ Aplikasi saat ini telah berkembang dari MVP menjadi **v1.0** dengan arsitektur m
 | **Extraction** | `trafilatura` primary, `BeautifulSoup` fallback — terstruktur (title, headings, text, links) |
 | **Tool Limit** | Per-run state (`AgentRunState`): counter reset setiap query |
 | **CLI** | Mode argumen + mode interaktif + `--verbose` flag |
-| **Tests** | 5 test files dengan `pytest` |
+| **Tests** | Suite `pytest` per modul + E2E agent scripted + kontrak Nginx |
 | **Config** | Terpusat di `config.py` + `.env` |
 | **Safe Crawling** | `robots.txt`, User-Agent transparan, rate limit per domain, guardrails |
 | **Evidence** | Structured `EvidenceStore` dengan SHA256 dedup + citations di jawaban final |

@@ -13,12 +13,19 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 - ADR-0006 (rate limit fail-closed), ADR-0007 (cakupan guardrails), ADR-0008 (SSRF).
 - Profil Compose `prod`/`staging`; staging berjalan dengan `NGINX_PORT=8081` pada host yang sama.
 - Coverage gate `--cov-fail-under=83` di CI GitHub Actions & GitLab CI.
+- `UI_TO_API_KEY`: key service Nginx→API terpisah dari `UI_API_KEY` browser; keduanya wajib terdaftar di `API_ALLOWED_KEYS` (ADR-0009).
+- Nginx `/healthz/ready` (proxy ke API) + healthcheck container Nginx; staging via `NGINX_PORT` (ADR-0009).
+- Observability minimal: endpoint `/metrics` (format Prometheus) dan event log `api.request` dengan `outcome`/`status`/`duration_ms`; Nginx `safe_access` menambahkan `rt=` (ADR-0010).
+- `tests/test_api.py`: test 503 fail-closed, `/metrics`, satu event per request.
+- `tests/test_compose.py`: kontrak profil staging (`NGINX_PORT`) dan key Nginx wajib.
 
 ### Changed
 
 - **BREAKING**: rate limit inbound kini fail-closed (ADR-0006) — Redis tidak terjangkau membuat `POST /api/v1/ask` membalas HTTP 503 `dependency_unavailable`; limiter mengembalikan `RateLimitDecision`, bukan `bool`.
 - **BREAKING (perilaku)**: guardrails mengikuti PRD (ADR-0007) — pertanyaan umum yang memuat "password"/"login" tidak lagi diblokir; domain sensitif dicocokkan per label dan entri duplikat/`bank` dihapus.
 - `SEARCH_PROVIDER` kini divalidasi di `config.py` (fail-fast saat startup, bukan saat tool dipanggil).
+- `pip-audit` kini blocking di CI (sebelumnya `continue-on-error`); CI memakai `pip-audit` tanpa `--skip-editable`.
+- Test memaksa nilai env test (menimpa `.env` lokal) agar hasil suite tidak bergantung konfigurasi developer.
 - Pipeline pencarian bertipe: provider mengembalikan `list[SearchResult]`; format string untuk LLM dihasilkan satu kali (tidak lagi regex-extract dari teks).
 - Fetch HTTP diserialkan per request (`_fetcher_lock`) agar satu `httpx.Client` tidak dipakai bersamaan; HTML diparse sekali (`extract_page`) sebelum deteksi JS-heavy.
 - Guardrails URL dicek sebelum kuota tool terpakai, sehingga URL internal yang ditolak tidak menghabiskan kuota.
@@ -26,6 +33,7 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 ### Removed
 
 - Pemeriksaan kelengkapan ModelHub/Azure di `main.load_llm` (dipindah ke `config.py`).
+- `searxng/settings.yml`: `secret_key` dari environment `SEARXNG_SECRET` (Compose mewajibkannya), tidak lagi nilai dev ter-commit.
 - Dead code: `EvidenceStore.get_citations`/`get_citations_text`, `load_dotenv()` ganda di `main.main`, cabang `isinstance(args.question, list)` yang tidak mungkin, ekstraksi canonical duplikat di `tools/extract.py`.
 
 ## [1.2.0] - 2026-11-25

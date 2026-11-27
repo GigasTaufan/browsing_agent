@@ -121,6 +121,7 @@ API_ALLOWED_KEYS = tuple(
     key.strip() for key in os.getenv("API_ALLOWED_KEYS", "").split(",") if key.strip()
 )
 UI_API_KEY = os.getenv("UI_API_KEY", "").strip()
+UI_TO_API_KEY = os.getenv("UI_TO_API_KEY", "").strip()
 if not API_ALLOWED_KEYS:
     raise ValueError(
         "Variabel lingkungan wajib belum diisi di .env: API_ALLOWED_KEYS. "
@@ -131,9 +132,12 @@ if not UI_API_KEY:
         "Variabel lingkungan wajib belum diisi di .env: UI_API_KEY. "
         "Salin dari .env.example lalu sesuaikan nilainya."
     )
-if UI_API_KEY not in API_ALLOWED_KEYS:
+# Key service Nginx -> API (ADR-0009); boleh sama dengan UI_API_KEY untuk deployment kecil.
+UI_TO_API_KEY = UI_TO_API_KEY or UI_API_KEY
+if UI_API_KEY not in API_ALLOWED_KEYS or UI_TO_API_KEY not in API_ALLOWED_KEYS:
     raise ValueError(
-        "UI_API_KEY harus tercantum di API_ALLOWED_KEYS agar Nginx dapat memanggil API."
+        "UI_API_KEY dan UI_TO_API_KEY harus tercantum di API_ALLOWED_KEYS agar Nginx "
+        "dapat memanggil API."
     )
 
 # --- LLM (provider utama ModelHub; Azure hanya fallback) ---

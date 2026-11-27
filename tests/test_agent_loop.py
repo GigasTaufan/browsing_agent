@@ -32,11 +32,14 @@ def _set_config(monkeypatch, **kwargs):
 def _stub_search(monkeypatch):
     """Stub provider DDG agar search_tool mengembalikan hasil kaleng tanpa network."""
 
-    def fake_search(query: str) -> str:
-        return (
-            "snippet: Nilai tukar USD/IDR hari ini, title: Kurs Dolar, "
-            "link: https://example.com/kurs"
-        )
+    def fake_search(query: str) -> list[search_module.SearchResult]:
+        return [
+            search_module.SearchResult(
+                title="Kurs Dolar",
+                url="https://example.com/kurs",
+                snippet="Nilai tukar USD/IDR hari ini",
+            )
+        ]
 
     monkeypatch.setattr(search_module, "_search_ddgs", fake_search)
 

@@ -1,22 +1,27 @@
 """
 Tool pencarian web dengan provider pluggable (DuckDuckGo / SearXNG),
-ranking dan deduplikasi URL. Counter state per query (bukan global).
+ranking dan deduplikasi hasil. Counter state per query (bukan global).
 """
 
-import re
 import time
+from collections.abc import Callable
 
 import httpx
 from ddgs import DDGS
 from langchain.tools import tool
+from pydantic import BaseModel
 
 import config
 from agent.planner import ToolLimitReached, check_and_increment
 
-# --- Search Provider Abstraction ---
-# Provider mengembalikan string mentah berformat baris:
-#   "snippet: ..., title: ..., link: ..."
-# sehingga ranking/dedup dan alur evidence tidak berubah antar provider.
+
+class SearchResult(BaseModel):
+    """Satu hasil pencarian: judul, URL, dan cuplikan teks."""
+
+    title: str
+    url: str
+    snippet: str
+
 
 _KNOWN_QUALITY_DOMAINS = {
     ".edu",
@@ -28,14 +33,6 @@ _KNOWN_QUALITY_DOMAINS = {
     ".britannica.com",
     ".stackoverflow.com",
 }
-
-
-def _extract_url(result_line: str) -> str | None:
-    """Ekstrak URL dari satu baris hasil pencarian."""
-    match = re.search(r"https?://[^\s,;\"\')\]]+", result_line)
-    if match:
-        return match.group().rstrip(",").rstrip("]").rstrip(";")
-    return None
 
 
 def _score_url(url: str) -> int:
@@ -52,55 +49,35 @@ def _score_url(url: str) -> int:
     return 1
 
 
-def _rank_and_dedup(raw_results: str, max_results: int | None = None) -> str:
-    """
-    Deduplikasi hasil pencarian berdasarkan URL,
-    lalu rank berdasarkan kualitas domain.
-    Mengembalikan string hasil ter-filter.
-    """
-    max_results = max_results or config.MAX_SEARCH_RESULTS
+def _rank_and_dedup(results: list[SearchResult], max_results: int) -> list[SearchResult]:
+    """Deduplikasi berdasarkan URL (lowercase, tanpa trailing slash) lalu rank domain kualitas."""
+    seen: set[str] = set()
+    unique: list[SearchResult] = []
+    for result in results:
+        canonical = result.url.rstrip("/").lower()
+        if canonical not in seen:
+            seen.add(canonical)
+            unique.append(result)
 
-    lines = raw_results.splitlines()
-
-    # Ekstrak URL dari setiap baris: (line, url, score)
-    entries: list[tuple[str, str, int]] = []
-    for line in lines:
-        url = _extract_url(line)
-        if url:
-            entries.append((line, url, _score_url(url)))
-
-    # Dedup berdasarkan URL (canonical: lowercase, tanpa trailing slash)
-    seen = set()
-    unique: list[tuple[str, str, int]] = []
-    for entry in entries:
-        canon = entry[1].rstrip("/").lower()
-        if canon not in seen:
-            seen.add(canon)
-            unique.append(entry)
-
-    # Sort descending by score, lalu batasi jumlah
-    ranked = sorted(unique, key=lambda entry: entry[2], reverse=True)[:max_results]
-
-    return "\n".join(entry[0] for entry in ranked) if ranked else ""
+    ranked = sorted(unique, key=lambda result: _score_url(result.url), reverse=True)
+    return ranked[:max_results]
 
 
-def _format_results(raw_results: str) -> str:
-    """Rank, dedup, dan log link hasil mentah; kembalikan string ter-format."""
-    filtered = _rank_and_dedup(raw_results)
-    formatted = ", ".join(filtered.splitlines())
+def _format_results(results: list[SearchResult]) -> str:
+    """Rank, dedup, log link teratas, dan kembalikan string untuk LLM."""
+    ranked = _rank_and_dedup(results, config.MAX_SEARCH_RESULTS)
 
-    # Ekstraksi URL untuk log transparansi
-    links = re.findall(r"https?://[^\s,;\"\')\]]+", formatted)
-    if links:
-        print(f"[Search Tool]: Ditemukan {len(links)} sumber relevan (setelah ranking):")
-        for i, link in enumerate(links[:3], 1):
-            clean_link = link.rstrip(",").rstrip("]").rstrip(";")
-            print(f"   {i}. {clean_link}")
+    if ranked:
+        print(f"[Search Tool]: Ditemukan {len(ranked)} sumber relevan (setelah ranking):")
+        for i, result in enumerate(ranked[:3], 1):
+            print(f"   {i}. {result.url}")
 
-    return formatted
+    return ", ".join(
+        f"snippet: {result.snippet}, title: {result.title}, link: {result.url}" for result in ranked
+    )
 
 
-def _search_ddgs(query: str) -> str:
+def _search_ddgs(query: str) -> list[SearchResult]:
     """Pencarian via DuckDuckGo (ddgs). Retry ladder: lite -> lite -> auto."""
     backends = ["lite", "lite", "auto"]
     last_error: Exception | None = None
@@ -116,10 +93,10 @@ def _search_ddgs(query: str) -> str:
                 )
 
             if results:
-                return "\n".join(
-                    f"snippet: {result['body']}, title: {result['title']}, link: {result['href']}"
+                return [
+                    SearchResult(title=result["title"], url=result["href"], snippet=result["body"])
                     for result in results
-                )
+                ]
 
             # Hasil kosong — coba backend berikutnya
             print(f"[Search Tool]: Backend '{backend}' return kosong, coba fallback...")
@@ -128,14 +105,13 @@ def _search_ddgs(query: str) -> str:
             last_error = e
             print(f"[Search Tool]: Gagal dengan backend '{backend}' (attempt {attempt}/3): {e}")
             if attempt < len(backends):
-                wait = attempt  # 1s, 2s
-                time.sleep(wait)
+                time.sleep(attempt)  # 1s, 2s
             continue
 
     raise RuntimeError(f"DuckDuckGo gagal setelah 3 attempts. Error: {last_error}")
 
 
-def _search_searxng(query: str) -> str:
+def _search_searxng(query: str) -> list[SearchResult]:
     """Pencarian via SearXNG JSON API (self-hosted, tanpa API key)."""
     if not config.SEARXNG_BASE_URL:
         raise RuntimeError("SEARXNG_BASE_URL belum dikonfigurasi.")
@@ -153,11 +129,14 @@ def _search_searxng(query: str) -> str:
     if not results:
         raise RuntimeError("SearXNG mengembalikan hasil kosong.")
 
-    return "\n".join(
-        f"snippet: {result.get('content', '')}, title: {result.get('title', '')}, "
-        f"link: {result.get('url', '')}"
+    return [
+        SearchResult(
+            title=result.get("title", ""),
+            url=result.get("url", ""),
+            snippet=result.get("content", ""),
+        )
         for result in results[: config.MAX_SEARCH_RESULTS]
-    )
+    ]
 
 
 def _record_provider_attributes(provider_name: str, fallback_used: bool) -> None:
@@ -180,6 +159,12 @@ def _record_provider_attributes(provider_name: str, fallback_used: bool) -> None
         pass
 
 
+_PROVIDERS: dict[str, Callable[[str], list[SearchResult]]] = {
+    "duckduckgo": _search_ddgs,
+    "searxng": _search_searxng,
+}
+
+
 @tool(
     "search_tool",
     description="Lakukan pencarian web (DuckDuckGo atau SearXNG sesuai konfigurasi) untuk mendapatkan daftar link dan ringkasan.",
@@ -196,28 +181,26 @@ def search_tool(query: str) -> str:
 
     print(f"\n[Search Tool]: Searching '{query}'...")
 
-    providers: dict[str, object] = {"duckduckgo": _search_ddgs, "searxng": _search_searxng}
     primary = config.SEARCH_PROVIDER
-    if primary not in providers:
+    if primary not in _PROVIDERS:
         return (
             f"[Search Tool]: SEARCH_PROVIDER tidak dikenal: {primary!r} "
             "(pilihan: duckduckgo, searxng)."
         )
 
-    # SearXNG hanya tersedia jika base URL dikonfigurasi.
-    available = dict(providers)
-    if not config.SEARXNG_BASE_URL:
-        available.pop("searxng")
-
     order = [primary]
     if config.SEARCH_FALLBACK_ENABLED:
-        order += [name for name in available if name != primary]
+        # SearXNG hanya tersedia jika base URL dikonfigurasi.
+        order += [
+            name
+            for name in _PROVIDERS
+            if name != primary and (name != "searxng" or config.SEARXNG_BASE_URL)
+        ]
 
     last_error: Exception | None = None
     for provider_name in order:
         try:
-            raw_results = providers[provider_name](query)  # type: ignore[operator]
-            formatted = _format_results(raw_results)
+            formatted = _format_results(_PROVIDERS[provider_name](query))
             if formatted:
                 _record_provider_attributes(provider_name, fallback_used=provider_name != primary)
                 print(

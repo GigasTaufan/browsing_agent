@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 import config
-from agent.planner import AgentRunState
+from agent.planner import AgentRunState, get_run_state
 from tools import fetch
 
 
@@ -58,11 +58,31 @@ def test_zero_limit_prevents_network(fetcher, monkeypatch):
 
 @pytest.mark.parametrize("length, expected", [(499, True), (500, False)])
 def test_js_detection_boundary(length, expected):
-    assert fetch._is_js_heavy("text/html", f"<body>{'a' * length}</body>") is expected
+    assert fetch._is_js_heavy("text/html", "a" * length) is expected
 
 
 def test_non_html_does_not_need_browser():
-    assert not fetch._is_js_heavy("application/json", "{}")
+    assert not fetch._is_js_heavy("application/json", "")
+
+
+def test_short_html_is_parsed_once(fetcher, monkeypatch):
+    """Deteksi JS-heavy memakai teks hasil extract_page, bukan parse HTML kedua."""
+    monkeypatch.setattr(config, "BROWSER_FALLBACK_ENABLED", False)
+    parse = Mock(wraps=fetch.extract_page)
+    monkeypatch.setattr(fetch, "extract_page", parse)
+
+    fetch.browse_tool.invoke({"url": "https://example.com/a"})
+
+    assert parse.call_count == 1
+
+
+def test_internal_url_is_rejected_before_network(fetcher):
+    """Guardrail SSRF dicek sebelum tool limit terpakai dan sebelum fetch."""
+    result = fetch.browse_tool.invoke({"url": "http://169.254.169.254/latest/meta-data/"})
+
+    assert "Guardrail" in result
+    fetcher.fetch.assert_not_called()
+    assert get_run_state().tool_calls["browse_tool"] == 0
 
 
 def test_short_html_uses_browser_fallback(fetcher, monkeypatch):

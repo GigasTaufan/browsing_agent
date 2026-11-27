@@ -32,6 +32,18 @@ _REQUIRED_VARS = [
     "RATE_LIMIT_WINDOW_SECONDS",
     "MAX_CONCURRENT_AGENT_RUNS",
     "MAX_QUESTION_LENGTH",
+    "API_ALLOWED_KEYS",
+    "UI_API_KEY",
+]
+
+_LLM_KEYS = [
+    "MODELHUB_API_KEY",
+    "MODELHUB_BASE_URL",
+    "MODELHUB_MODEL_NAME",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_OPENAI_ENDPOINT",
+    "AZURE_OPENAI_DEPLOYMENT_NAME",
+    "AZURE_OPENAI_PREVIEW_API_VERSION",
 ]
 
 _MLFLOW_VARS = [
@@ -127,3 +139,110 @@ def test_bool_accepts_common_truthy_values(monkeypatch):
     reloaded = importlib.reload(config)
 
     assert reloaded.BROWSER_FALLBACK_ENABLED is False
+
+
+def _isolate_env(monkeypatch):
+    """Isolasi .env lokal; hanya os.environ yang dibaca."""
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: None)
+
+
+def _clear_llm_keys(monkeypatch):
+    """Hapus semua kredensial LLM agar validator provider diuji secara eksplisit."""
+    for name in _LLM_KEYS:
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_missing_api_allowed_keys_fails_fast(monkeypatch):
+    _isolate_env(monkeypatch)
+    monkeypatch.delenv("API_ALLOWED_KEYS", raising=False)
+
+    with pytest.raises(ValueError, match="API_ALLOWED_KEYS"):
+        importlib.reload(config)
+
+
+def test_missing_ui_api_key_fails_fast(monkeypatch):
+    _isolate_env(monkeypatch)
+    monkeypatch.delenv("UI_API_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="UI_API_KEY"):
+        importlib.reload(config)
+
+
+def test_ui_api_key_must_be_allowed(monkeypatch):
+    _isolate_env(monkeypatch)
+    monkeypatch.setenv("API_ALLOWED_KEYS", "caller-key")
+    monkeypatch.setenv("UI_API_KEY", "ui-key")
+
+    with pytest.raises(ValueError, match="harus tercantum di API_ALLOWED_KEYS"):
+        importlib.reload(config)
+
+
+def test_nginx_service_key_must_be_allowed(monkeypatch):
+    _isolate_env(monkeypatch)
+    monkeypatch.setenv("API_ALLOWED_KEYS", "caller-key,ui-key")
+    monkeypatch.setenv("UI_API_KEY", "ui-key")
+    monkeypatch.setenv("UI_TO_API_KEY", "nginx-key")
+
+    with pytest.raises(ValueError, match="UI_TO_API_KEY"):
+        importlib.reload(config)
+
+
+def test_nginx_service_key_defaults_to_ui_key(monkeypatch):
+    _isolate_env(monkeypatch)
+    monkeypatch.setenv("API_ALLOWED_KEYS", "caller-key,ui-key")
+    monkeypatch.setenv("UI_API_KEY", "ui-key")
+    monkeypatch.delenv("UI_TO_API_KEY", raising=False)
+
+    reloaded = importlib.reload(config)
+
+    assert reloaded.UI_TO_API_KEY == "ui-key"
+
+
+def test_allowed_keys_parsed_without_blank_entries(monkeypatch):
+    _isolate_env(monkeypatch)
+    monkeypatch.setenv("API_ALLOWED_KEYS", " caller-a , ,ui-key, ")
+    monkeypatch.setenv("UI_API_KEY", "ui-key")
+    monkeypatch.delenv("UI_TO_API_KEY", raising=False)
+
+    reloaded = importlib.reload(config)
+
+    assert reloaded.API_ALLOWED_KEYS == ("caller-a", "ui-key")
+    assert reloaded.UI_API_KEY == "ui-key"
+
+
+def test_incomplete_modelhub_config_fails_fast(monkeypatch):
+    _isolate_env(monkeypatch)
+    _clear_llm_keys(monkeypatch)
+    monkeypatch.setenv("MODELHUB_API_KEY", "modelhub-key")
+    monkeypatch.delenv("MODELHUB_BASE_URL", raising=False)
+
+    with pytest.raises(ValueError, match="MODELHUB_BASE_URL dan MODELHUB_MODEL_NAME"):
+        importlib.reload(config)
+
+
+def test_no_llm_provider_fails_fast(monkeypatch):
+    _isolate_env(monkeypatch)
+    _clear_llm_keys(monkeypatch)
+
+    with pytest.raises(ValueError, match="MODELHUB_API_KEY"):
+        importlib.reload(config)
+
+
+def test_complete_azure_credentials_allow_startup_without_modelhub(monkeypatch):
+    _isolate_env(monkeypatch)
+    _clear_llm_keys(monkeypatch)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://azure.example/")
+    monkeypatch.setenv("AZURE_OPENAI_PREVIEW_API_VERSION", "2024-12-01-preview")
+
+    reloaded = importlib.reload(config)
+
+    assert reloaded.MODELHUB_API_KEY is None
+    assert reloaded.AZURE_OPENAI_API_KEY == "azure-key"
+
+
+def test_unknown_search_provider_fails_fast(monkeypatch):
+    monkeypatch.setenv("SEARCH_PROVIDER", "google")
+
+    with pytest.raises(ValueError, match="SEARCH_PROVIDER"):
+        importlib.reload(config)

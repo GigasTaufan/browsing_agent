@@ -3,8 +3,6 @@
 from datetime import datetime
 from unittest.mock import Mock
 
-import pytest
-
 import main
 
 
@@ -42,19 +40,6 @@ def test_load_llm_selects_modelhub_when_api_key_is_set(monkeypatch):
     azure.assert_not_called()
 
 
-def test_load_llm_rejects_incomplete_modelhub_config(monkeypatch):
-    modelhub = Mock()
-    monkeypatch.setattr(main.config, "MODELHUB_API_KEY", "modelhub-key")
-    monkeypatch.setattr(main.config, "MODELHUB_BASE_URL", None)
-    monkeypatch.setattr(main.config, "MODELHUB_MODEL_NAME", "example-model")
-    monkeypatch.setattr(main, "ChatOpenAI", modelhub)
-
-    with pytest.raises(ValueError, match="MODELHUB_BASE_URL dan MODELHUB_MODEL_NAME"):
-        main.load_llm()
-
-    modelhub.assert_not_called()
-
-
 def test_load_llm_uses_azure_when_modelhub_key_is_absent(monkeypatch):
     model = Mock()
     azure = Mock(return_value=model)
@@ -79,33 +64,4 @@ def test_load_llm_uses_azure_when_modelhub_key_is_absent(monkeypatch):
         timeout=60,
         max_retries=2,
     )
-    modelhub.assert_not_called()
-
-
-def test_load_llm_rejects_incomplete_azure_config(monkeypatch):
-    azure = Mock()
-    monkeypatch.setattr(main.config, "MODELHUB_API_KEY", None)
-    monkeypatch.setattr(main.config, "AZURE_OPENAI_ENDPOINT", None)
-    monkeypatch.setattr(main.config, "AZURE_OPENAI_API_KEY", "azure-key")
-    monkeypatch.setattr(main.config, "AZURE_OPENAI_PREVIEW_API_VERSION", "2024-12-01-preview")
-    monkeypatch.setattr(main, "AzureChatOpenAI", azure)
-
-    with pytest.raises(ValueError, match="AZURE_OPENAI_ENDPOINT"):
-        main.load_llm()
-
-    azure.assert_not_called()
-
-
-def test_load_llm_raises_when_no_provider_is_configured(monkeypatch):
-    azure = Mock()
-    modelhub = Mock()
-    monkeypatch.setattr(main.config, "MODELHUB_API_KEY", None)
-    monkeypatch.setattr(main.config, "AZURE_OPENAI_API_KEY", None)
-    monkeypatch.setattr(main, "AzureChatOpenAI", azure)
-    monkeypatch.setattr(main, "ChatOpenAI", modelhub)
-
-    with pytest.raises(ValueError, match="MODELHUB_API_KEY"):
-        main.load_llm()
-
-    azure.assert_not_called()
     modelhub.assert_not_called()

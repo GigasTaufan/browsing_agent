@@ -3,7 +3,7 @@
 import asyncio
 
 import config
-from policy.inbound_rate_limit import RedisRateLimiter, build_rate_limiter
+from policy.inbound_rate_limit import RateLimitDecision, RedisRateLimiter, build_rate_limiter
 
 
 class FakeRedis:
@@ -30,7 +30,7 @@ def test_under_limit_allowed():
 
     results = [asyncio.run(limiter.check("key-a")) for _ in range(3)]
 
-    assert results == [True, True, True]
+    assert results == [RateLimitDecision.ALLOWED] * 3
 
 
 def test_over_limit_blocked():
@@ -39,7 +39,11 @@ def test_over_limit_blocked():
 
     results = [asyncio.run(limiter.check("key-a")) for _ in range(3)]
 
-    assert results == [True, True, False]
+    assert results == [
+        RateLimitDecision.ALLOWED,
+        RateLimitDecision.ALLOWED,
+        RateLimitDecision.LIMITED,
+    ]
 
 
 def test_expire_set_only_on_first_request_in_window():
@@ -53,11 +57,12 @@ def test_expire_set_only_on_first_request_in_window():
     assert client.expired[0][1] == 120  # window 60s * 2
 
 
-def test_redis_error_fails_open():
+def test_redis_error_fails_closed():
+    """ADR-0006: Redis error -> UNAVAILABLE (API membalas 503), bukan diizinkan."""
     client = FakeRedis(fail=True)
     limiter = RedisRateLimiter(client, limit=1)
 
-    assert asyncio.run(limiter.check("key-a")) is True
+    assert asyncio.run(limiter.check("key-a")) is RateLimitDecision.UNAVAILABLE
 
 
 def test_keys_are_hashed_not_stored_raw():

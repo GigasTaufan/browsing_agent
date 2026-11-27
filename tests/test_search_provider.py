@@ -2,6 +2,8 @@
 
 from unittest.mock import Mock, patch
 
+import pytest
+
 from tools import search as search_module
 
 
@@ -111,6 +113,7 @@ def test_searxng_skipped_as_fallback_when_not_configured(monkeypatch):
 
 
 def test_unknown_provider_returns_clear_error(monkeypatch):
+    """config.py menolak SEARCH_PROVIDER asing saat startup; guard run-time tetap ada."""
     _set_config(monkeypatch, SEARCH_PROVIDER="google")
 
     answer = search_module.search_tool.invoke({"query": "test"})
@@ -122,11 +125,8 @@ def test_unknown_provider_returns_clear_error(monkeypatch):
 def test_searxng_without_base_url_raises(monkeypatch):
     _set_config(monkeypatch, SEARXNG_BASE_URL=None)
 
-    try:
+    with pytest.raises(RuntimeError, match="SEARXNG_BASE_URL"):
         search_module._search_searxng("test")
-        raise AssertionError("harusnya raise RuntimeError")
-    except RuntimeError as e:
-        assert "SEARXNG_BASE_URL" in str(e)
 
 
 def test_provider_recorded_on_mlflow_span(monkeypatch):
@@ -178,3 +178,23 @@ def test_provider_recorded_on_mlflow_span(monkeypatch):
 
     assert "https://example.com/x" in answer
     assert captured == {"search.provider": "searxng", "search.fallback_used": True}
+
+
+def test_ranking_dedups_by_url_and_never_rewrites_commas(monkeypatch):
+    """URL berisi koma/titik-koma tidak boleh terpotong oleh parsing regex lama."""
+    _set_config(monkeypatch, MAX_SEARCH_RESULTS=5)
+    results = [
+        search_module.SearchResult(title="Koma", url="https://example.com/a,b;c", snippet="satu"),
+        search_module.SearchResult(title="Gov", url="https://example.gov/a,b;c", snippet="dua"),
+        search_module.SearchResult(
+            title="Duplikat", url="https://EXAMPLE.com/a,b;c/", snippet="tiga"
+        ),
+    ]
+
+    formatted = search_module._format_results(results)
+
+    assert "link: https://example.com/a,b;c" in formatted
+    assert "link: https://example.gov/a,b;c" in formatted
+    assert formatted.count("https://example.com/a,b;c") == 1
+    # Domain pemerintah dirank lebih dulu, tanpa memotong URL.
+    assert formatted.index("https://example.gov") < formatted.index("https://example.com")

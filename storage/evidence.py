@@ -87,21 +87,3 @@ class EvidenceStore:
         self._hashes.add(content_hash)
         self._canonical_urls.add(canonical)
         return item
-
-    def get_citations(self) -> list[str]:
-        """
-        Kembalikan daftar string citation dalam format:
-        [index]. [Judul](URL)
-        """
-        lines = []
-        for i, item in enumerate(self.items, start=1):
-            title = item.title or item.canonical_url
-            lines.append(f"{i}. [{title}]({item.canonical_url})")
-        return lines
-
-    def get_citations_text(self) -> str:
-        """Kembalikan citations sebagai satu string yang sudah diformat."""
-        if not self.items:
-            return ""
-        header = "\n---\nSumber:\n"
-        return header + "\n".join(self.get_citations())

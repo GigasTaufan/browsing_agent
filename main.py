@@ -12,7 +12,6 @@ import tomllib
 from datetime import datetime
 from urllib.parse import urlparse
 
-from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
@@ -110,11 +109,8 @@ def setup_tracing(verbose: bool = False):
 
 def load_llm(verbose: bool = False):
     """Memuat ModelHub (provider utama); fallback ke Azure OpenAI jika dikonfigurasi."""
+    # config.py memvalidasi kelengkapan ModelHub / Azure saat startup.
     if config.MODELHUB_API_KEY:
-        if not config.MODELHUB_BASE_URL or not config.MODELHUB_MODEL_NAME:
-            raise ValueError(
-                "MODELHUB_BASE_URL dan MODELHUB_MODEL_NAME wajib diisi jika MODELHUB_API_KEY digunakan."
-            )
         if verbose:
             print("[Config]: Load LLM ModelHub ...")
         llm = ChatOpenAI(
@@ -133,20 +129,6 @@ def load_llm(verbose: bool = False):
 
     # Fallback: Azure OpenAI hanya jika API key-nya dikonfigurasi.
     if config.AZURE_OPENAI_API_KEY:
-        missing = [
-            name
-            for name, value in (
-                ("AZURE_OPENAI_ENDPOINT", config.AZURE_OPENAI_ENDPOINT),
-                ("AZURE_OPENAI_PREVIEW_API_VERSION", config.AZURE_OPENAI_PREVIEW_API_VERSION),
-            )
-            if not value
-        ]
-        if missing:
-            raise ValueError(
-                f"Kredensial Azure OpenAI tidak lengkap: {', '.join(missing)}. "
-                "Isi di file .env (lihat .env.example)."
-            )
-
         if verbose:
             print("[Config]: Load LLM Azure ...")
         azure_llm = AzureChatOpenAI(
@@ -241,9 +223,6 @@ def main():
     args = _parse_args()
     verbose = args.verbose
 
-    # 0) Load .env variables
-    load_dotenv()
-
     if verbose:
         if config.MODELHUB_API_KEY:
             print(f"[Config]: ModelHub model = {config.MODELHUB_MODEL_NAME}")
@@ -268,12 +247,7 @@ def main():
     # 4) Run sesuai mode
     if args.question:
         # Mode argumen: langsung jawab lalu exit
-        if isinstance(args.question, list):
-            question = " ".join(args.question)
-        else:
-            question = args.question
-
-        answer = run_agent(agent, question, verbose=verbose)
+        answer = run_agent(agent, args.question, verbose=verbose)
         print(_render_cli_result(answer))
     else:
         # Mode interaktif: loop input()

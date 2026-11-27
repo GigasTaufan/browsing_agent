@@ -81,7 +81,7 @@ MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME")
 
 # --- API Inbound Limits ---
-# Rate limit per API key via Redis; kosong = dinonaktifkan (fail-open saat Redis down).
+# Rate limit per API key via Redis; kosong = dinonaktifkan (dev/CLI). Redis down = 503 (ADR-0006).
 RATE_LIMIT_REDIS_URL = os.getenv("RATE_LIMIT_REDIS_URL")
 
 # Validasi keberadaan semua variabel operasional wajib (fail-fast, satu pesan untuk semua).
@@ -115,6 +115,55 @@ _require(
     ]
 )
 
+# --- API access (auth caller + Nginx UI) ---
+# UI_API_KEY wajib ikut di API_ALLOWED_KEYS agar hanya caller terdaftar yang lolos auth.
+API_ALLOWED_KEYS = tuple(
+    key.strip() for key in os.getenv("API_ALLOWED_KEYS", "").split(",") if key.strip()
+)
+UI_API_KEY = os.getenv("UI_API_KEY", "").strip()
+UI_TO_API_KEY = os.getenv("UI_TO_API_KEY", "").strip()
+if not API_ALLOWED_KEYS:
+    raise ValueError(
+        "Variabel lingkungan wajib belum diisi di .env: API_ALLOWED_KEYS. "
+        "Salin dari .env.example lalu sesuaikan nilainya."
+    )
+if not UI_API_KEY:
+    raise ValueError(
+        "Variabel lingkungan wajib belum diisi di .env: UI_API_KEY. "
+        "Salin dari .env.example lalu sesuaikan nilainya."
+    )
+# Key service Nginx -> API (ADR-0009); boleh sama dengan UI_API_KEY untuk deployment kecil.
+UI_TO_API_KEY = UI_TO_API_KEY or UI_API_KEY
+if UI_API_KEY not in API_ALLOWED_KEYS or UI_TO_API_KEY not in API_ALLOWED_KEYS:
+    raise ValueError(
+        "UI_API_KEY dan UI_TO_API_KEY harus tercantum di API_ALLOWED_KEYS agar Nginx "
+        "dapat memanggil API."
+    )
+
+# --- LLM (provider utama ModelHub; Azure hanya fallback) ---
+# Keduanya opsional satu per satu, tetapi minimal satu provider harus lengkap.
+if MODELHUB_API_KEY:
+    if not MODELHUB_BASE_URL or not MODELHUB_MODEL_NAME:
+        raise ValueError(
+            "MODELHUB_BASE_URL dan MODELHUB_MODEL_NAME wajib diisi jika MODELHUB_API_KEY digunakan."
+        )
+elif not (AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_PREVIEW_API_VERSION):
+    raise ValueError(
+        "Tidak ada provider LLM terkonfigurasi. Isi MODELHUB_API_KEY (beserta "
+        "MODELHUB_BASE_URL & MODELHUB_MODEL_NAME) atau kredensial Azure OpenAI "
+        "(AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_PREVIEW_API_VERSION)."
+    )
+
+# --- Search Provider ---
+# Nilai valid divalidasi saat startup (SEARXNG_BASE_URL opsional, divalidasi saat dipakai).
+_SEARCH_PROVIDERS = ("duckduckgo", "searxng")
+SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "").strip().lower()
+if SEARCH_PROVIDER not in _SEARCH_PROVIDERS:
+    raise ValueError(
+        f"SEARCH_PROVIDER harus salah satu dari {', '.join(_SEARCH_PROVIDERS)}, "
+        f"ditemukan: {SEARCH_PROVIDER!r}."
+    )
+
 # --- LLM (parameter inferensi) ---
 LLM_TEMPERATURE = _env_float("LLM_TEMPERATURE")
 LLM_MAX_TOKENS = _env_int("LLM_MAX_TOKENS")
@@ -140,8 +189,6 @@ RATE_LIMIT_PER_DOMAIN_SECONDS = _env_float("RATE_LIMIT_PER_DOMAIN_SECONDS")
 ROBOTS_FAIL_OPEN = _env_bool("ROBOTS_FAIL_OPEN")
 ROBOTS_CACHE_TTL_SECONDS = _env_int("ROBOTS_CACHE_TTL_SECONDS")
 
-# --- Search Provider ---
-SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "").strip().lower()
 SEARCH_FALLBACK_ENABLED = _env_bool("SEARCH_FALLBACK_ENABLED")
 
 # --- MLflow GenAI Tracing ---

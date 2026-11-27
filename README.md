@@ -128,7 +128,7 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 | `LLM_TIMEOUT` | `60` | Timeout request LLM (detik) |
 | `LLM_MAX_RETRIES` | `2` | Retry otomatis request LLM |
 | `MLFLOW_TRACING_ENABLED` | `true` | Aktifkan MLflow GenAI tracing untuk LangChain |
-| `MLFLOW_TRACKING_URI` | `http://10.60.144.48:5000` | URI server MLflow untuk tracing |
+| `MLFLOW_TRACKING_URI` | URL server MLflow internal (lihat `.env.example`) | URI server MLflow untuk tracing |
 | `MLFLOW_EXPERIMENT_NAME` | `browsing-agent-dev` | Nama experiment MLflow |
 | `MLFLOW_HTTP_TIMEOUT` | `5` | Timeout REST call MLflow (detik) |
 | `MLFLOW_PREFLIGHT_TIMEOUT` | `2.0` | Timeout pre-flight TCP check MLflow saat startup (detik) |
@@ -148,7 +148,7 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 | `ROBOTS_FAIL_OPEN` | `true` | `true`: izinkan jika robots.txt gagal di-fetch (non-404); `false`: tolak |
 | `ROBOTS_CACHE_TTL_SECONDS` | `3600` | TTL cache robots.txt per domain (detik) |
 | `CHUNK_SIZE` | `2000` | Ukuran chunk konten halaman |
-| `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` (di Compose) | URL Redis untuk rate limit per API key; kosong = nonaktif |
+| `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` (di Compose) | URL Redis untuk rate limit per API key; kosong = nonaktif (dev/CLI); Redis down = 503 |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `10` | Maksimum request per API key per menit |
 | `RATE_LIMIT_REDIS_TIMEOUT` | `1.0` | Timeout socket Redis (detik) |
 | `RATE_LIMIT_WINDOW_SECONDS` | `60` | Ukuran window fixed-window rate limit (detik) |
@@ -162,12 +162,12 @@ uv run scripts/modelhub.py
 
 ## API melalui Docker Compose
 
-API dijalankan hanya di jaringan internal Compose; Nginx menerbitkan UI dan API pada port `8080` host. Buat `.env` lokal dari `.env.example`, lalu ganti semua nilai placeholder dengan nilai acak/rahasia milik Anda. `API_ALLOWED_KEYS` menerima daftar key caller yang dipisahkan koma; masukkan `UI_API_KEY` ke daftar tersebut. Simpan `.env` dengan izin akses terbatas dan jangan commit atau membagikan isinya.
+API dijalankan hanya di jaringan internal Compose; Nginx menerbitkan UI dan API pada port `8080` host. Buat `.env` lokal dari `.env.example`, lalu ganti semua nilai placeholder dengan nilai acak/rahasia milik Anda. `API_ALLOWED_KEYS` menerima daftar key caller yang dipisahkan koma; masukkan `UI_API_KEY` dan `UI_TO_API_KEY` ke daftar tersebut (boleh sama nilainya). Simpan `.env` dengan izin akses terbatas dan jangan commit atau membagikan isinya.
 
 ```bash
 cp .env.example .env
-# Edit .env: set API_ALLOWED_KEYS dan UI_API_KEY yang unik serta kredensial provider.
-docker compose up --build -d
+# Edit .env: set API_ALLOWED_KEYS, UI_API_KEY, UI_TO_API_KEY yang unik serta kredensial provider.
+docker compose --profile prod up --build -d
 docker compose ps
 docker compose down
 ```
@@ -183,14 +183,14 @@ curl --fail-with-body -X POST http://localhost:8080/api/v1/ask \
   -d '{"question":"Apa perkembangan terbaru energi surya?"}'
 ```
 
-Sukses menghasilkan JSON berisi `answer` dan `citations` (array citation dengan `id`, `url`, dan `snippet`). Key hilang/tidak sah menghasilkan HTTP `401`; pertanyaan kosong menghasilkan HTTP `422`. Respons kegagalan agent menggunakan HTTP `500` dengan envelope `{"error":{"code":"internal_error","message":"Terjadi kesalahan internal."}}`. Endpoint health publik Nginx tersedia pada `/healthz`.
+Sukses menghasilkan JSON berisi `answer` dan `citations` (array citation dengan `id`, `url`, dan `snippet`). Key hilang/tidak sah menghasilkan HTTP `401`; pertanyaan kosong/terlalu panjang menghasilkan HTTP `422`; melewati rate limit HTTP `429` (`rate_limited` / `server_busy`); Redis tidak terjangkau HTTP `503` (`dependency_unavailable`, fail-closed — ADR-0006). Respons kegagalan agent menggunakan HTTP `500` dengan envelope `{"error":{"code":"internal_error","message":"Terjadi kesalahan internal."}}`. Endpoint health publik Nginx: `/healthz` (Nginx hidup) dan `/healthz/ready` (200 hanya jika API hidup). Metrik `/api/metrics` menyediakan `browsing_agent_requests_total{outcome}` dan ringkasan durasi (ADR-0010).
 
 Jangan gunakan kredensial provider nyata dalam pengujian. Tes unit API memakai agent stub dan tidak menghubungi provider.
 
 ### Batasan keamanan
 
 - Jaringan API tidak dipublikasikan langsung ke host; akses caller dilakukan lewat Nginx.
-- `/api/` meneruskan header `Authorization` caller apa adanya, sedangkan `/ui-api/` menggunakan `UI_API_KEY` dari environment Nginx.
+- `/api/` meneruskan header `Authorization` caller apa adanya, sedangkan `/ui-api/` menggunakan `UI_TO_API_KEY` dari environment Nginx (ADR-0009).
 - Halaman UI merupakan halaman uji, bukan autentikasi pengguna. Semua pengakses dapat memakai akses API yang diberikan key UI.
 - Jangan mengekspos port HTTP `8080` ke jaringan yang tidak tepercaya. HTTPS intranet wajib disediakan oleh reverse proxy atau terminasi TLS di depan Nginx.
 
@@ -206,7 +206,7 @@ Jangan gunakan kredensial provider nyata dalam pengujian. Tes unit API memakai a
 | Komponen | Library |
 |----------|---------|
 | LLM | `langchain` 1.3+, `langchain-openai` |
-| Search | `duckduckgo-search` (via `ddgs`) |
+| Search | `ddgs` (DuckDuckGo) / SearXNG JSON |
 | HTTP Fetch | `httpx` |
 | Browser Fallback | `selenium` + `webdriver-manager` |
 | Content Extraction | `trafilatura`, `beautifulsoup4`, `lxml` |

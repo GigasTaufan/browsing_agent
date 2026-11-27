@@ -29,7 +29,7 @@ Bahasa utama untuk komentar, docstring, dan dokumentasi adalah **Bahasa Indonesi
 - **HTTP Fetch**: `httpx` (primary) + Selenium headless Chrome (fallback, `webdriver-manager`)
 - **Content Extraction**: `trafilatura` (primary) / `beautifulsoup4` + `lxml` (fallback)
 - **API**: FastAPI + Nginx ingress (API key injection untuk UI)
-- **Rate Limit**: Redis (per API key, fixed window, fail-open)
+- **Rate Limit**: Redis (per API key, fixed window, fail-closed — Redis down = 503)
 - **Tracing**: MLflow GenAI (`mlflow.langchain.autolog`)
 - **Environment**: `python-dotenv`
 - **Testing**: `pytest`
@@ -51,7 +51,7 @@ browsing_agent/
 │   ├── guardrails.py            # Blokir query & URL (keyword/domain filter)
 │   ├── robots.py                # robots.txt checker (TTL cache, ROBOTS_FAIL_OPEN, 404=allow)
 │   ├── rate_limit.py            # Rate limit per domain outbound (time.sleep)
-│   └── inbound_rate_limit.py    # Rate limit per API key via Redis (fail-open)
+│   └── inbound_rate_limit.py    # Rate limit per API key via Redis (fail-closed)
 ├── storage/evidence.py          # EvidenceStore: dedup URL & content hash, citations
 ├── frontend/                    # UI statis (tanpa API key; Nginx menyuntik key)
 ├── nginx/                       # Template Nginx (resolver dinamik, /ui-api/ rewrite)
@@ -79,7 +79,7 @@ uv run python main.py                # mode interaktif
 uv run python main.py "..." --verbose
 
 # Full stack (API + UI + SearXNG + Redis + Nginx) di http://localhost:8080
-docker compose up -d --build
+docker compose --profile prod up -d --build
 
 # Menjalankan tests
 uv run python -m pytest tests/
@@ -96,7 +96,7 @@ uv run python -m pytest tests/
 - **Quality gate** (wajib hijau sebelum commit):
   ```bash
   uv run --no-sync ruff check . && uv run --no-sync ruff format --check . \
-    && uv run --no-sync mypy . && uv run --no-sync python -m pytest tests/ -q
+    && uv run --no-sync mypy . && uv run --no-sync python -m pytest tests/ -q --cov --cov-fail-under=83
   ```
 
 # Testing Instructions
@@ -107,7 +107,7 @@ uv run python -m pytest tests/
 
 - `tests/conftest.py` menonaktifkan async trace queue MLflow agar exit pytest cepat, dan mengisi nilai test untuk variabel wajib (config tanpa default; .env lokal menang).
 - `tests/test_api.py` — kontrak API (auth, error envelope, rate limit 429, concurrency 429, panjang pertanyaan) tanpa LLM/network.
-- `tests/test_inbound_rate_limit.py` — limiter Redis dengan fake client (fail-open, hashing, window).
+- `tests/test_inbound_rate_limit.py` — limiter Redis dengan fake client (fail-closed, hashing, window).
 - `tests/test_search_provider.py` — seleksi provider, fallback, atribut span MLflow.
 - `tests/test_robots.py` — allow/disallow, fail-open & fail-closed, 404=allow (RFC 9309).
 - `tests/integration/test_nginx_config.py` — kontrak ingress Nginx (smoke via Docker bila tersedia).
@@ -119,8 +119,8 @@ uv run python -m pytest tests/
 - **UI key**: Frontend tidak menyimpan key; Nginx menyuntik `UI_API_KEY` (ADR-0003).
 - **Tool call limiting**: Per-run state ContextVar, di-reset tiap query (ADR-0001).
 - **robots.txt**: Dicek sebelum fetch; kebijakan fail-open/closed via `ROBOTS_FAIL_OPEN` (ADR-0004).
-- **Rate limiting**: Outbound per-domain delay; inbound per-API-key via Redis, fail-open (ADR-0005).
-- **Input validation**: Guardrails + panjang pertanyaan (`MAX_QUESTION_LENGTH`).
+- **Rate limiting**: Outbound per-domain delay; inbound per-API-key via Redis, fail-closed 503 (ADR-0006).
+- **Input validation**: Guardrails (automation/bypass sesuai PRD, URL internal/privat ditolak — ADR-0007/0008) + panjang pertanyaan (`MAX_QUESTION_LENGTH`).
 - **Safe crawling policy**: Tidak ada proxy rotation, fingerprint spoofing, CAPTCHA/paywall bypass. Dilarang keras.
 - **Browser isolation**: Selenium headless via `ChromeDriverManager`.
 
@@ -163,7 +163,10 @@ Keputusan arsitektur signifikan didokumentasi di `docs/adr/`:
 - ADR-0002 — HTTP-first fetch dengan fallback Selenium
 - ADR-0003 — Nginx menyuntik UI API key (tidak pernah ke browser)
 - ADR-0004 — kebijakan fail-open/closed robots.txt
-- ADR-0005 — rate limit API per key via Redis (fail-open)
+- ADR-0005 — rate limit API per key via Redis (digantikan ADR-0006)
+- ADR-0006 — rate limit fail-closed (Redis down → 503)
+- ADR-0007 — cakupan guardrails sesuai PRD (automation, bukan kata)
+- ADR-0008 — blokir URL internal/privat (SSRF)
 
 # Release Process
 

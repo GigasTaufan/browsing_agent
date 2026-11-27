@@ -4,6 +4,26 @@ Semua perubahan signifikan pada proyek ini didokumentasikan di file ini.
 Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/),
 dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Validasi startup `config.py`: `API_ALLOWED_KEYS` & `UI_API_KEY` wajib dan `UI_API_KEY` harus tercantum di `API_ALLOWED_KEYS`; minimal satu provider LLM (ModelHub lengkap atau Azure lengkap) wajib terkonfigurasi (ADR-0002, ADR-0003).
+- Blokir URL internal/privat (SSRF): hostname tanpa titik, `localhost`, IP privat/loopback/link-local/reserved (termasuk bentuk desimal, hex, IPv4-mapped IPv6), dan hostname yang gagal di-resolve (ADR-0008).
+- ADR-0006 (rate limit fail-closed), ADR-0007 (cakupan guardrails), ADR-0008 (SSRF).
+- Profil Compose `prod`/`staging`; staging berjalan dengan `NGINX_PORT=8081` pada host yang sama.
+- Coverage gate `--cov-fail-under=83` di CI GitHub Actions & GitLab CI.
+
+### Changed
+
+- **BREAKING**: rate limit inbound kini fail-closed (ADR-0006) — Redis tidak terjangkau membuat `POST /api/v1/ask` membalas HTTP 503 `dependency_unavailable`; limiter mengembalikan `RateLimitDecision`, bukan `bool`.
+- **BREAKING (perilaku)**: guardrails mengikuti PRD (ADR-0007) — pertanyaan umum yang memuat "password"/"login" tidak lagi diblokir; domain sensitif dicocokkan per label dan entri duplikat/`bank` dihapus.
+- `SEARCH_PROVIDER` kini divalidasi di `config.py` (fail-fast saat startup, bukan saat tool dipanggil).
+
+### Removed
+
+- Pemeriksaan kelengkapan ModelHub/Azure di `main.load_llm` (dipindah ke `config.py`).
+
 ## [1.2.0] - 2026-11-25
 
 ### Added

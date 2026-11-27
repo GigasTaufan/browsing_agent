@@ -148,7 +148,7 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 | `ROBOTS_FAIL_OPEN` | `true` | `true`: izinkan jika robots.txt gagal di-fetch (non-404); `false`: tolak |
 | `ROBOTS_CACHE_TTL_SECONDS` | `3600` | TTL cache robots.txt per domain (detik) |
 | `CHUNK_SIZE` | `2000` | Ukuran chunk konten halaman |
-| `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` (di Compose) | URL Redis untuk rate limit per API key; kosong = nonaktif |
+| `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` (di Compose) | URL Redis untuk rate limit per API key; kosong = nonaktif (dev/CLI); Redis down = 503 |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `10` | Maksimum request per API key per menit |
 | `RATE_LIMIT_REDIS_TIMEOUT` | `1.0` | Timeout socket Redis (detik) |
 | `RATE_LIMIT_WINDOW_SECONDS` | `60` | Ukuran window fixed-window rate limit (detik) |
@@ -167,7 +167,7 @@ API dijalankan hanya di jaringan internal Compose; Nginx menerbitkan UI dan API 
 ```bash
 cp .env.example .env
 # Edit .env: set API_ALLOWED_KEYS dan UI_API_KEY yang unik serta kredensial provider.
-docker compose up --build -d
+docker compose --profile prod up --build -d
 docker compose ps
 docker compose down
 ```
@@ -183,7 +183,7 @@ curl --fail-with-body -X POST http://localhost:8080/api/v1/ask \
   -d '{"question":"Apa perkembangan terbaru energi surya?"}'
 ```
 
-Sukses menghasilkan JSON berisi `answer` dan `citations` (array citation dengan `id`, `url`, dan `snippet`). Key hilang/tidak sah menghasilkan HTTP `401`; pertanyaan kosong menghasilkan HTTP `422`. Respons kegagalan agent menggunakan HTTP `500` dengan envelope `{"error":{"code":"internal_error","message":"Terjadi kesalahan internal."}}`. Endpoint health publik Nginx tersedia pada `/healthz`.
+Sukses menghasilkan JSON berisi `answer` dan `citations` (array citation dengan `id`, `url`, dan `snippet`). Key hilang/tidak sah menghasilkan HTTP `401`; pertanyaan kosong/terlalu panjang menghasilkan HTTP `422`; melewati rate limit HTTP `429` (`rate_limited` / `server_busy`); Redis tidak terjangkau HTTP `503` (`dependency_unavailable`, fail-closed — ADR-0006). Respons kegagalan agent menggunakan HTTP `500` dengan envelope `{"error":{"code":"internal_error","message":"Terjadi kesalahan internal."}}`. Endpoint health publik Nginx tersedia pada `/healthz`.
 
 Jangan gunakan kredensial provider nyata dalam pengujian. Tes unit API memakai agent stub dan tidak menghubungi provider.
 

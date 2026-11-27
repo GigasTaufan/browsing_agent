@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 import config
 from agent.planner import get_run_state
 from api import create_app
+from policy.inbound_rate_limit import RateLimitDecision
 from storage.evidence import EvidenceItem
 
 API_KEY = "caller-test-key"
@@ -40,13 +41,13 @@ class StubAgent:
 class StubLimiter:
     """Rate limiter stub: mencatat key dan mengembalikan keputusan tetap."""
 
-    def __init__(self, allowed: bool):
-        self.allowed = allowed
+    def __init__(self, decision: RateLimitDecision):
+        self.decision = decision
         self.keys: list[str] = []
 
-    async def check(self, api_key: str) -> bool:
+    async def check(self, api_key: str) -> RateLimitDecision:
         self.keys.append(api_key)
-        return self.allowed
+        return self.decision
 
 
 @pytest.fixture
@@ -183,7 +184,7 @@ def test_overlong_question_is_rejected(api_client, monkeypatch):
 def test_rate_limit_exceeded_returns_429(monkeypatch):
     monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
     monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
-    limiter = StubLimiter(allowed=False)
+    limiter = StubLimiter(RateLimitDecision.LIMITED)
 
     with TestClient(create_app(agent_factory=lambda: StubAgent(), rate_limiter=limiter)) as client:
         response = client.post(

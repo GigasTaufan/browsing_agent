@@ -12,6 +12,11 @@ os.environ.setdefault("MLFLOW_ENABLE_ASYNC_TRACE_LOGGING", "false")
 # .env lokal (bila ada) menang; nilai di bawah hanya mengisi yang kosong,
 # sehingga suite tetap hermetic di CI tanpa file .env.
 TEST_ENV_DEFAULTS = {
+    "API_ALLOWED_KEYS": "test-caller-key,test-ui-key",
+    "UI_API_KEY": "test-ui-key",
+    "MODELHUB_API_KEY": "test-modelhub-key",
+    "MODELHUB_BASE_URL": "https://modelhub.test/v1",
+    "MODELHUB_MODEL_NAME": "test-model",
     "LLM_TEMPERATURE": "0.7",
     "LLM_MAX_TOKENS": "1500",
     "LLM_TIMEOUT": "60",

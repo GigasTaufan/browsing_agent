@@ -1,21 +1,30 @@
 """
 Rate limit inbound per API key, dibackend Redis (fixed-window per menit).
-Fail-open: jika Redis tidak terjangkau, request diizinkan.
+Fail-closed: jika Redis tidak terjangkau, API membalas 503 (ADR-0006).
 Identitas key di-hash (SHA-256) agar API key mentah tidak pernah disimpan di Redis.
 """
 
 import hashlib
 import time
+from enum import Enum
 from typing import Protocol
 
 import config
 import oplog
 
 
+class RateLimitDecision(Enum):
+    """Keputusan limiter untuk satu request."""
+
+    ALLOWED = "allowed"
+    LIMITED = "limited"
+    UNAVAILABLE = "unavailable"
+
+
 class RateLimiterProtocol(Protocol):
     """Interface rate limiter yang dipakai API (memudahkan stub di test)."""
 
-    async def check(self, api_key: str) -> bool: ...
+    async def check(self, api_key: str) -> RateLimitDecision: ...
 
     async def aclose(self) -> None: ...
 
@@ -35,10 +44,10 @@ class RedisRateLimiter:
             window_seconds if window_seconds is not None else config.RATE_LIMIT_WINDOW_SECONDS
         )
 
-    async def check(self, api_key: str) -> bool:
+    async def check(self, api_key: str) -> RateLimitDecision:
         """
-        Return True jika request diizinkan.
-        Fail-open: error Redis apa pun diizinkan (dengan log).
+        Kembalikan keputusan untuk request ini.
+        Fail-closed: error Redis apa pun -> UNAVAILABLE (dengan log).
         """
         digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
         window_index = int(time.time()) // self._window_seconds
@@ -49,10 +58,10 @@ class RedisRateLimiter:
             if count == 1:
                 await self._client.expire(bucket, self._window_seconds * 2)
         except Exception as e:
-            oplog.log_event("rate_limit.redis_error", error=str(e), fail_open=True)
-            return True
+            oplog.log_event("rate_limit.redis_error", error=str(e), fail_closed=True)
+            return RateLimitDecision.UNAVAILABLE
 
-        return count <= self._limit
+        return RateLimitDecision.ALLOWED if count <= self._limit else RateLimitDecision.LIMITED
 
     async def aclose(self) -> None:
         """Tutup koneksi Redis (dipanggil saat app shutdown)."""
@@ -64,8 +73,8 @@ class RedisRateLimiter:
 
 def build_rate_limiter():
     """
-    Bangun RedisRateLimiter dari config; return None jika dinonaktifkan.
-    Timeout socket pendek agar fail-open cepat saat Redis down.
+    Bangun RedisRateLimiter dari config; return None jika dinonaktifkan (dev/CLI).
+    Timeout socket pendek agar fail-closed cepat saat Redis down.
     """
     if not config.RATE_LIMIT_REDIS_URL:
         return None

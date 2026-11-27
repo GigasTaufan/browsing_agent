@@ -17,7 +17,10 @@ from starlette.concurrency import run_in_threadpool
 import config
 import oplog
 from main import build_system_prompt, define_agent, load_llm, run_agent, setup_tracing
-from policy.inbound_rate_limit import RateLimiterProtocol, build_rate_limiter
+from policy.inbound_rate_limit import (
+    RateLimitDecision,
+    build_rate_limiter,
+)
 from tools.fetch import browse_tool, fetcher_cleanup
 from tools.search import search_tool
 
@@ -66,13 +69,8 @@ def _authenticate(authorization: str | None) -> str:
             candidate = credential
 
     candidate_bytes = candidate.encode("utf-8")
-    allowed_keys = (
-        value.strip()
-        for value in os.environ.get("API_ALLOWED_KEYS", "").split(",")
-        if value.strip()
-    )
     matches = False
-    for allowed_key in allowed_keys:
+    for allowed_key in config.API_ALLOWED_KEYS:
         match = hmac.compare_digest(candidate_bytes, allowed_key.encode("utf-8"))
         matches = matches | match
 
@@ -169,14 +167,25 @@ def create_app(
             )
 
         limiter = app.state.rate_limiter
-        if limiter is not None and not await limiter.check(api_key):
-            oplog.log_event("api.ask_rejected", reason="rate_limited", key_hash=key_hash)
-            return JSONResponse(
-                status_code=429,
-                content=_error(
-                    "rate_limited", "Terlalu banyak request. Coba lagi dalam satu menit."
-                ),
-            )
+        if limiter is not None:
+            decision = await limiter.check(api_key)
+            if decision is RateLimitDecision.UNAVAILABLE:
+                # Fail-closed (ADR-0006): tanpa limiter, quota caller tidak dapat dijamin.
+                return JSONResponse(
+                    status_code=503,
+                    content=_error(
+                        "dependency_unavailable",
+                        "Layanan pembatas request sedang tidak tersedia. Coba lagi nanti.",
+                    ),
+                )
+            if decision is RateLimitDecision.LIMITED:
+                oplog.log_event("api.ask_rejected", reason="rate_limited", key_hash=key_hash)
+                return JSONResponse(
+                    status_code=429,
+                    content=_error(
+                        "rate_limited", "Terlalu banyak request. Coba lagi dalam satu menit."
+                    ),
+                )
 
         semaphore = app.state.concurrency_semaphore
         if not semaphore.acquire(blocking=False):

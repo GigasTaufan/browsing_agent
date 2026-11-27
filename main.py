@@ -110,11 +110,8 @@ def setup_tracing(verbose: bool = False):
 
 def load_llm(verbose: bool = False):
     """Memuat ModelHub (provider utama); fallback ke Azure OpenAI jika dikonfigurasi."""
+    # config.py memvalidasi kelengkapan ModelHub / Azure saat startup.
     if config.MODELHUB_API_KEY:
-        if not config.MODELHUB_BASE_URL or not config.MODELHUB_MODEL_NAME:
-            raise ValueError(
-                "MODELHUB_BASE_URL dan MODELHUB_MODEL_NAME wajib diisi jika MODELHUB_API_KEY digunakan."
-            )
         if verbose:
             print("[Config]: Load LLM ModelHub ...")
         llm = ChatOpenAI(
@@ -133,20 +130,6 @@ def load_llm(verbose: bool = False):
 
     # Fallback: Azure OpenAI hanya jika API key-nya dikonfigurasi.
     if config.AZURE_OPENAI_API_KEY:
-        missing = [
-            name
-            for name, value in (
-                ("AZURE_OPENAI_ENDPOINT", config.AZURE_OPENAI_ENDPOINT),
-                ("AZURE_OPENAI_PREVIEW_API_VERSION", config.AZURE_OPENAI_PREVIEW_API_VERSION),
-            )
-            if not value
-        ]
-        if missing:
-            raise ValueError(
-                f"Kredensial Azure OpenAI tidak lengkap: {', '.join(missing)}. "
-                "Isi di file .env (lihat .env.example)."
-            )
-
         if verbose:
             print("[Config]: Load LLM Azure ...")
         azure_llm = AzureChatOpenAI(

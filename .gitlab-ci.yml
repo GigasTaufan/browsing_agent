@@ -28,7 +28,7 @@ quality:
     - uv run --no-sync ruff check .
     - uv run --no-sync ruff format --check .
     - uv run --no-sync mypy .
-    - uv run --no-sync python -m pytest tests/ --cov --cov-report=term-missing
+    - uv run --no-sync python -m pytest tests/ --cov --cov-report=term-missing --cov-fail-under=83
 
 security:
   stage: security

@@ -115,6 +115,41 @@ _require(
     ]
 )
 
+# --- API access (auth caller + Nginx UI) ---
+# UI_API_KEY wajib ikut di API_ALLOWED_KEYS agar hanya caller terdaftar yang lolos auth.
+API_ALLOWED_KEYS = tuple(
+    key.strip() for key in os.getenv("API_ALLOWED_KEYS", "").split(",") if key.strip()
+)
+UI_API_KEY = os.getenv("UI_API_KEY", "").strip()
+if not API_ALLOWED_KEYS:
+    raise ValueError(
+        "Variabel lingkungan wajib belum diisi di .env: API_ALLOWED_KEYS. "
+        "Salin dari .env.example lalu sesuaikan nilainya."
+    )
+if not UI_API_KEY:
+    raise ValueError(
+        "Variabel lingkungan wajib belum diisi di .env: UI_API_KEY. "
+        "Salin dari .env.example lalu sesuaikan nilainya."
+    )
+if UI_API_KEY not in API_ALLOWED_KEYS:
+    raise ValueError(
+        "UI_API_KEY harus tercantum di API_ALLOWED_KEYS agar Nginx dapat memanggil API."
+    )
+
+# --- LLM (provider utama ModelHub; Azure hanya fallback) ---
+# Keduanya opsional satu per satu, tetapi minimal satu provider harus lengkap.
+if MODELHUB_API_KEY:
+    if not MODELHUB_BASE_URL or not MODELHUB_MODEL_NAME:
+        raise ValueError(
+            "MODELHUB_BASE_URL dan MODELHUB_MODEL_NAME wajib diisi jika MODELHUB_API_KEY digunakan."
+        )
+elif not (AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_PREVIEW_API_VERSION):
+    raise ValueError(
+        "Tidak ada provider LLM terkonfigurasi. Isi MODELHUB_API_KEY (beserta "
+        "MODELHUB_BASE_URL & MODELHUB_MODEL_NAME) atau kredensial Azure OpenAI "
+        "(AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_PREVIEW_API_VERSION)."
+    )
+
 # --- LLM (parameter inferensi) ---
 LLM_TEMPERATURE = _env_float("LLM_TEMPERATURE")
 LLM_MAX_TOKENS = _env_int("LLM_MAX_TOKENS")

@@ -1,6 +1,8 @@
 """Unit test policy/inbound_rate_limit.py dengan fake Redis client (tanpa Redis nyata)."""
 
 import asyncio
+import sys
+from types import SimpleNamespace
 
 import config
 from policy.inbound_rate_limit import RateLimitDecision, RedisRateLimiter, build_rate_limiter
@@ -91,3 +93,23 @@ def test_build_rate_limiter_enabled_when_url_set(monkeypatch):
     assert isinstance(limiter, RedisRateLimiter)
     assert limiter._limit == 7
     asyncio.run(limiter.aclose())
+
+
+def test_build_rate_limiter_passes_only_supported_client_options(monkeypatch):
+    """Regresi: opsi klien ilegal baru gagal saat koneksi -> semua request 503 (dulu `wait_for_connection`)."""
+    captured = {}
+
+    class FakeRedis:
+        @staticmethod
+        def from_url(url, **kwargs):
+            captured.update(kwargs)
+            return object()
+
+    monkeypatch.setitem(sys.modules, "redis.asyncio", SimpleNamespace(Redis=FakeRedis))
+    monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", "redis://localhost:6379/0")
+
+    assert isinstance(build_rate_limiter(), RedisRateLimiter)
+    assert captured == {
+        "socket_timeout": config.RATE_LIMIT_REDIS_TIMEOUT,
+        "socket_connect_timeout": config.RATE_LIMIT_REDIS_TIMEOUT,
+    }

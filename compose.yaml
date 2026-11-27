@@ -57,6 +57,8 @@ services:
       - "${NGINX_PORT:-8080}:80"
     volumes:
       - ./frontend:/usr/share/nginx/html:ro,Z
+      # Bind mount FILE (bukan direktori) agar edit template ikut terlihat saat recreate;
+      # dicek ke nginx -t sebelum reload (lihat healthcheck tidak memakai ini).
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro,Z
     networks:
       - backend

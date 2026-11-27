@@ -54,7 +54,7 @@ Tidak perlu redeploy frontend (key tidak pernah ada di aset statis).
 - **Log operasional**: stderr container api berisi JSON lines dari `oplog`
   (`api.request` per request: `outcome`, `status`, `duration_ms`; `rate_limit.redis_error`):
   `docker compose logs api | grep '"event"'`.
-- **Metrik**: `curl http://localhost:8080/api/metrics` (atau langsung `api:8000/metrics`)
+- **Metrik**: `curl http://localhost:8080/api/metrics` (route khusus di Nginx, bukan prefix `/api/`)
   → counter `browsing_agent_requests_total{outcome}` + ringkasan durasi (ADR-0010).
 - **Log aplikasi**: `docker compose logs api` (UX print + uvicorn access log).
 

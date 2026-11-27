@@ -37,6 +37,13 @@ server {
         proxy_set_header Authorization $http_authorization;
     }
 
+    # Metrik operasional (ADR-0010); jaringan intranet.
+    location = /api/metrics {
+        access_log off;
+        proxy_pass $api_upstream/metrics;
+        proxy_set_header Host $host;
+    }
+
     location /ui-api/ {
         rewrite ^/ui-api/(.*)$ /api/$1 break;
         proxy_pass $api_upstream;

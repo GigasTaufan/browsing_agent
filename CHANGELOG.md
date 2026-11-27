@@ -18,6 +18,8 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 - Observability minimal: endpoint `/metrics` (format Prometheus) dan event log `api.request` dengan `outcome`/`status`/`duration_ms`; Nginx `safe_access` menambahkan `rt=` (ADR-0010).
 - `tests/test_api.py`: test 503 fail-closed, `/metrics`, satu event per request.
 - `tests/test_compose.py`: kontrak profil staging (`NGINX_PORT`) dan key Nginx wajib.
+- Route Nginx `location = /api/metrics` (proxy ke API `/metrics`).
+- Test regresi: opsi klien Redis yang diteruskan `build_rate_limiter` (opsi ilegal = 503).
 
 ### Changed
 

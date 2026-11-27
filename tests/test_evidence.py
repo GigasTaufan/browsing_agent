@@ -1,6 +1,6 @@
 """
 Unit test untuk storage/evidence.py.
-Verifikasi deduplikasi dan citations.
+Verifikasi deduplikasi dan urutan item evidence.
 """
 
 from storage.evidence import EvidenceStore
@@ -63,14 +63,14 @@ def test_evidence_store_dedup_by_similar_content():
     assert len(store.items) == 1
 
 
-def test_evidence_citations_format():
-    """Citations dalam format yang benar."""
+def test_evidence_keeps_unique_items_in_fetch_order():
+    """Jawaban & citations memakai `items` apa adanya: urutan fetch, tanpa duplikat."""
     store = EvidenceStore()
 
     store.add(make_extracted("https://a.com", "Teks A", "Judul A"))
     store.add(make_extracted("https://b.com", "Teks B", "Judul B"))
+    store.add(make_extracted("https://a.com", "Teks A", "Judul A"))
 
-    citations = store.get_citations()
-    assert len(citations) == 2
-    assert "[Judul A](https://a.com)" in citations[0]
-    assert "[Judul B](https://b.com)" in citations[1]
+    assert [item.url for item in store.items] == ["https://a.com", "https://b.com"]
+    assert store.items[0].canonical_url == "https://a.com"
+    assert store.items[1].title == "Judul B"

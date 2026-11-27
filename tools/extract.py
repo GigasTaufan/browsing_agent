@@ -56,14 +56,6 @@ def _extract_with_bs4(
     if title_tag:
         title = title_tag.get_text(strip=True)
 
-    # Canonical URL
-    canonical = None
-    canonical_tag = soup.find("link", rel="canonical")
-    if canonical_tag:
-        canonical = _get_str_attr(canonical_tag, "href")
-        if canonical and canonical.startswith("/"):
-            canonical = urljoin(url, canonical)
-
     # Headings
     headings = []
     for level in range(1, 7):

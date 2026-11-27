@@ -12,7 +12,6 @@ import tomllib
 from datetime import datetime
 from urllib.parse import urlparse
 
-from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
@@ -224,9 +223,6 @@ def main():
     args = _parse_args()
     verbose = args.verbose
 
-    # 0) Load .env variables
-    load_dotenv()
-
     if verbose:
         if config.MODELHUB_API_KEY:
             print(f"[Config]: ModelHub model = {config.MODELHUB_MODEL_NAME}")
@@ -251,12 +247,7 @@ def main():
     # 4) Run sesuai mode
     if args.question:
         # Mode argumen: langsung jawab lalu exit
-        if isinstance(args.question, list):
-            question = " ".join(args.question)
-        else:
-            question = args.question
-
-        answer = run_agent(agent, question, verbose=verbose)
+        answer = run_agent(agent, args.question, verbose=verbose)
         print(_render_cli_result(answer))
     else:
         # Mode interaktif: loop input()

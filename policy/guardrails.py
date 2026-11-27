@@ -48,6 +48,26 @@ def is_query_blocked(query: str) -> tuple[bool, str]:
     return False, ""
 
 
+def _is_private_ip(value: str | int) -> bool:
+    """True jika alamat IP tidak publik (privat, loopback, link-local, reserved)."""
+    ip = ipaddress.ip_address(value)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return not ip.is_global
+
+
+def _resolves_to_private(hostname: str, port: int) -> bool:
+    """True jika hostname (bentuk desimal/hex/IPv6-embedded sekalipun) menuju alamat privat."""
+    try:
+        # Satu query per family agar setiap alamat (v4/v6) diperiksa.
+        answers = socket.getaddrinfo(
+            hostname, port, family=socket.AF_INET, proto=socket.IPPROTO_TCP
+        ) + socket.getaddrinfo(hostname, port, family=socket.AF_INET6, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return True  # Tidak bisa diverifikasi -> fail-closed
+    return not answers or any(_is_private_ip(sockaddr[0]) for *_, sockaddr in answers)
+
+
 def is_url_blocked(url: str) -> tuple[bool, str]:
     """
     Cek apakah URL menuju domain sensitif atau alamat internal/privat.

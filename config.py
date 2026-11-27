@@ -81,7 +81,7 @@ MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME")
 
 # --- API Inbound Limits ---
-# Rate limit per API key via Redis; kosong = dinonaktifkan (fail-open saat Redis down).
+# Rate limit per API key via Redis; kosong = dinonaktifkan (dev/CLI). Redis down = 503 (ADR-0006).
 RATE_LIMIT_REDIS_URL = os.getenv("RATE_LIMIT_REDIS_URL")
 
 # Validasi keberadaan semua variabel operasional wajib (fail-fast, satu pesan untuk semua).
@@ -150,6 +150,16 @@ elif not (AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_PREVIE
         "(AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_PREVIEW_API_VERSION)."
     )
 
+# --- Search Provider ---
+# Nilai valid divalidasi saat startup (SEARXNG_BASE_URL opsional, divalidasi saat dipakai).
+_SEARCH_PROVIDERS = ("duckduckgo", "searxng")
+SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "").strip().lower()
+if SEARCH_PROVIDER not in _SEARCH_PROVIDERS:
+    raise ValueError(
+        f"SEARCH_PROVIDER harus salah satu dari {', '.join(_SEARCH_PROVIDERS)}, "
+        f"ditemukan: {SEARCH_PROVIDER!r}."
+    )
+
 # --- LLM (parameter inferensi) ---
 LLM_TEMPERATURE = _env_float("LLM_TEMPERATURE")
 LLM_MAX_TOKENS = _env_int("LLM_MAX_TOKENS")
@@ -175,8 +185,6 @@ RATE_LIMIT_PER_DOMAIN_SECONDS = _env_float("RATE_LIMIT_PER_DOMAIN_SECONDS")
 ROBOTS_FAIL_OPEN = _env_bool("ROBOTS_FAIL_OPEN")
 ROBOTS_CACHE_TTL_SECONDS = _env_int("ROBOTS_CACHE_TTL_SECONDS")
 
-# --- Search Provider ---
-SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "").strip().lower()
 SEARCH_FALLBACK_ENABLED = _env_bool("SEARCH_FALLBACK_ENABLED")
 
 # --- MLflow GenAI Tracing ---

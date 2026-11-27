@@ -2,7 +2,6 @@
 
 import hashlib
 import hmac
-import os
 import threading
 import time
 from collections.abc import Callable
@@ -19,6 +18,7 @@ import oplog
 from main import build_system_prompt, define_agent, load_llm, run_agent, setup_tracing
 from policy.inbound_rate_limit import (
     RateLimitDecision,
+    RateLimiterProtocol,
     build_rate_limiter,
 )
 from tools.fetch import browse_tool, fetcher_cleanup

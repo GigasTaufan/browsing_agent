@@ -52,7 +52,7 @@ class StubLimiter:
 
 @pytest.fixture
 def api_client(monkeypatch):
-    monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    monkeypatch.setattr(config, "API_ALLOWED_KEYS", (API_KEY,))
     # Hermetic: jangan bangun Redis limiter dari .env lokal di unit test.
     monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
     agent = StubAgent()
@@ -152,7 +152,8 @@ def test_health_check_is_public_and_does_not_expose_configuration(api_client):
 
 
 def test_agent_is_created_once_and_fetcher_is_cleaned_at_shutdown(monkeypatch):
-    monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    # Satu-satunya test yang tidak patch validator startup: lifespan (dan AGENTS.md
+    # quality gate) boleh jalan dengan kredensial nyata .env/CI.
     monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
     factory = Mock(return_value=StubAgent())
     cleanup = Mock()
@@ -182,7 +183,7 @@ def test_overlong_question_is_rejected(api_client, monkeypatch):
 
 
 def test_rate_limit_exceeded_returns_429(monkeypatch):
-    monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    monkeypatch.setattr(config, "API_ALLOWED_KEYS", (API_KEY,))
     monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
     limiter = StubLimiter(RateLimitDecision.LIMITED)
 
@@ -203,8 +204,27 @@ def test_rate_limit_exceeded_returns_429(monkeypatch):
     assert limiter.keys == [API_KEY]
 
 
+def test_redis_unavailable_returns_503_and_does_not_run_agent(monkeypatch):
+    """ADR-0006: limiter tidak terjangkau -> fail-closed 503, bukan diizinkan."""
+    monkeypatch.setattr(config, "API_ALLOWED_KEYS", (API_KEY,))
+    monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
+    limiter = StubLimiter(RateLimitDecision.UNAVAILABLE)
+    agent = StubAgent()
+
+    with TestClient(create_app(agent_factory=lambda: agent, rate_limiter=limiter)) as client:
+        response = client.post(
+            "/api/v1/ask",
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            json={"question": "Question"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "dependency_unavailable"
+    assert agent.calls == []
+
+
 def test_concurrency_cap_returns_429_when_exhausted(monkeypatch):
-    monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    monkeypatch.setattr(config, "API_ALLOWED_KEYS", (API_KEY,))
     monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
     monkeypatch.setattr(config, "MAX_CONCURRENT_AGENT_RUNS", 1)
 

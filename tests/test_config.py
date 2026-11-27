@@ -36,6 +36,16 @@ _REQUIRED_VARS = [
     "UI_API_KEY",
 ]
 
+_LLM_KEYS = [
+    "MODELHUB_API_KEY",
+    "MODELHUB_BASE_URL",
+    "MODELHUB_MODEL_NAME",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_OPENAI_ENDPOINT",
+    "AZURE_OPENAI_DEPLOYMENT_NAME",
+    "AZURE_OPENAI_PREVIEW_API_VERSION",
+]
+
 _MLFLOW_VARS = [
     "MLFLOW_TRACKING_URI",
     "MLFLOW_EXPERIMENT_NAME",
@@ -134,6 +144,10 @@ def test_bool_accepts_common_truthy_values(monkeypatch):
 def _isolate_env(monkeypatch):
     """Isolasi .env lokal; hanya os.environ yang dibaca."""
     monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: None)
+
+
+def _clear_llm_keys(monkeypatch):
+    """Hapus semua kredensial LLM agar validator provider diuji secara eksplisit."""
     for name in _LLM_KEYS:
         monkeypatch.delenv(name, raising=False)
 
@@ -176,6 +190,7 @@ def test_allowed_keys_parsed_without_blank_entries(monkeypatch):
 
 def test_incomplete_modelhub_config_fails_fast(monkeypatch):
     _isolate_env(monkeypatch)
+    _clear_llm_keys(monkeypatch)
     monkeypatch.setenv("MODELHUB_API_KEY", "modelhub-key")
     monkeypatch.delenv("MODELHUB_BASE_URL", raising=False)
 
@@ -185,6 +200,7 @@ def test_incomplete_modelhub_config_fails_fast(monkeypatch):
 
 def test_no_llm_provider_fails_fast(monkeypatch):
     _isolate_env(monkeypatch)
+    _clear_llm_keys(monkeypatch)
 
     with pytest.raises(ValueError, match="MODELHUB_API_KEY"):
         importlib.reload(config)
@@ -192,6 +208,7 @@ def test_no_llm_provider_fails_fast(monkeypatch):
 
 def test_complete_azure_credentials_allow_startup_without_modelhub(monkeypatch):
     _isolate_env(monkeypatch)
+    _clear_llm_keys(monkeypatch)
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://azure.example/")
     monkeypatch.setenv("AZURE_OPENAI_PREVIEW_API_VERSION", "2024-12-01-preview")

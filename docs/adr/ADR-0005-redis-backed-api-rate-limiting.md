@@ -1,6 +1,6 @@
 # ADR-0005: Rate limit API per key via Redis (fixed window, fail-open)
 
-**Status:** Accepted
+**Status:** Superseded oleh [ADR-0006](ADR-0006-fail-closed-rate-limit.md) (fail-closed)
 
 ## Context
 

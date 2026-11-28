@@ -8,13 +8,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from policy.robots import clear_robots_cache, is_url_allowed
+import policy.robots as robots
+from policy.robots import is_url_allowed
 
 
 @pytest.fixture(autouse=True)
 def clear_cache():
     """Bersihkan cache robots.txt sebelum setiap test."""
-    clear_robots_cache()
+    robots._robots_cache.clear()
+    robots._cache_timestamp.clear()
 
 
 def test_robots_allow(mock_urlopen):

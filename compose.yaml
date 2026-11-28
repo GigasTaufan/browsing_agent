@@ -1,4 +1,6 @@
 services:
+  # Tanpa profil = default: service inti (api, nginx, redis, searxng) langsung menyala
+  # dengan `docker compose up`. Profil hanya untuk pemisahan eksplisit bila diinginkan.
   api:
     build:
       context: .
@@ -6,10 +8,16 @@ services:
     env_file:
       - .env
     environment:
-      # Default ke SearXNG internal; override via SEARXNG_BASE_URL di .env.
-      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080}
-      # Rate limit per API key via Redis internal; override di .env.
-      RATE_LIMIT_REDIS_URL: ${RATE_LIMIT_REDIS_URL:-redis://redis:6379/0}
+      # Fail-closed (ADR-0006): nilai wajib dari .env, tanpa fallback di Compose.
+      RATE_LIMIT_REDIS_URL: ${RATE_LIMIT_REDIS_URL:?Set RATE_LIMIT_REDIS_URL in .env (copy .env.example first)}
+      # Provider pencarian: SearXNG internal (self-hosted) atau DuckDuckGo.
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:?Set SEARXNG_BASE_URL in .env (copy .env.example first)}
+      # Di container, localhost menunjuk ke API sendiri; alias ini menuju host Docker.
+      MLFLOW_TRACKING_URI: ${MLFLOW_CONTAINER_TRACKING_URI:?Set MLFLOW_CONTAINER_TRACKING_URI in .env (copy .env.example first)}
+      MLFLOW_EXPERIMENT_ID: ${MLFLOW_EXPERIMENT_ID:?Set MLFLOW_EXPERIMENT_ID in .env (copy .env.example first)}
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:?Set SEARCH_PROVIDER in .env (copy .env.example first)}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - backend
       - egress
@@ -26,8 +34,12 @@ services:
 
   searxng:
     image: searxng/searxng:latest
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?Set SEARXNG_SECRET in .env (copy .env.example first)}
+      # Engine wikipedia/wikidata/openstreetmap butuh contact_url agar terdaftar.
+      SEARXNG_CONTACT_URL: ${SEARXNG_CONTACT_URL:?Set SEARXNG_CONTACT_URL in .env (email admin)}
     volumes:
-      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro,Z
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro,z
     networks:
       - egress
     restart: unless-stopped
@@ -44,17 +56,32 @@ services:
       api:
         condition: service_healthy
     environment:
+      # ADR-0009: key browser (UI_API_KEY) dan key service Nginx->API (UI_TO_API_KEY) terpisah.
       UI_API_KEY: ${UI_API_KEY:?Set UI_API_KEY in .env (copy .env.example first)}
+      UI_TO_API_KEY: ${UI_TO_API_KEY:?Set UI_TO_API_KEY in .env (copy .env.example first)}
     ports:
-      - "8080:80"
+      # Wajib dari .env; staging di host yang sama memakai NGINX_PORT berbeda.
+      - "${NGINX_PORT:?Set NGINX_PORT in .env (copy .env.example first)}:80"
     volumes:
-      - ./frontend:/usr/share/nginx/html:ro,Z
-      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro,Z
+      # Label SELinux shared (:z): prod dan staging boleh membaca aset yang sama.
+      - ./frontend:/usr/share/nginx/html:ro,z
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro,z
     networks:
       - backend
       # Nginx butuh satu network non-internal agar port publish 8080 berfungsi;
       # container yang hanya menempel di network internal tidak menerima trafik host.
       - egress
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -qO-
+        - "http://127.0.0.1/healthz/ready"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 networks:
   backend:

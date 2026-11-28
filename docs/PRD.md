@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD) — Browsing Agent
 
-**Versi**: 1.0-draft
-**Tanggal**: 2026-05-26
-**Status**: MVP → General Browsing Information Agent (11 Fase)
+**Versi**: 1.2
+**Tanggal**: 2026-11-28
+**Status**: Implementasi saat ini (v1.2)
 **Bahasa**: Indonesia
 
 ---
@@ -21,7 +21,7 @@ Membangun agen browsing web yang aman, modular, dan legal-compliant untuk menjaw
 ### 1.3 Ruang Lingkup
 | Termasuk | Tidak Termasuk |
 |----------|----------------|
-| Pencarian web (DuckDuckGo) + browsing halaman | Stealth, proxy rotation, fingerprint spoofing |
+| Pencarian web (pluggable: DuckDuckGo/SearXNG) + browsing halaman | Stealth, proxy rotation, fingerprint spoofing |
 | Extract konten halaman web | CAPTCHA bypass |
 | Citation/sumber jawaban | Paywall bypass |
 | CLI interaktif + mode argumen | Login automation |
@@ -29,9 +29,9 @@ Membangun agen browsing web yang aman, modular, dan legal-compliant untuk menjaw
 
 ---
 
-## 2. Current State (v1.0)
+## 2. Current State (v1.2)
 
-Aplikasi saat ini telah berkembang dari MVP menjadi **v1.0** dengan arsitektur modular. Semua keterbatasan MVP telah diatasi.
+Aplikasi saat ini telah berkembang dari MVP menjadi **v1.2** dengan arsitektur modular. Semua keterbatasan MVP telah diatasi.
 
 | Aspek | Deskripsi |
 |-------|-----------|
@@ -39,18 +39,22 @@ Aplikasi saat ini telah berkembang dari MVP menjadi **v1.0** dengan arsitektur m
 | **LLM** | ModelHub via `ChatOpenAI` (utama); Azure OpenAI hanya fallback |
 | **Search** | Pluggable: DuckDuckGo (`ddgs`) atau SearXNG self-hosted, dengan fallback antar provider |
 | **Browser** | Selenium headless Chrome sebagai fallback; HTTP-first via `httpx` |
-| **Tools** | `search_tool`, `browse_tool` |
-| **Extraction** | `trafilatura` primary, `BeautifulSoup` fallback — terstruktur (title, headings, text, links) |
+| **Tools** | `search_web()` dan `browse_tool()` internal; agent tidak memakai tool-calling |
+| **Extraction** | `trafilatura` primary, `BeautifulSoup` fallback — title, headings, text |
 | **Tool Limit** | Per-run state (`AgentRunState`): counter reset setiap query |
 | **CLI** | Mode argumen + mode interaktif + `--verbose` flag |
-| **Tests** | 5 test files dengan `pytest` |
+| **Tests** | Suite `pytest` per modul + E2E agent scripted + kontrak Nginx |
 | **Config** | Terpusat di `config.py` + `.env` |
 | **Safe Crawling** | `robots.txt`, User-Agent transparan, rate limit per domain, guardrails |
 | **Evidence** | Structured `EvidenceStore` dengan SHA256 dedup + citations di jawaban final |
+| **Research** | Plan → select → review iteratif; kuota per run |
+| **Tracing** | MLflow GenAI; root span `browsing_agent.request`; opsional/non-fatal |
+| **Inbound Rate Limit** | Redis per API key; fail-closed 503 |
+| **UI** | Frontend statis; Nginx menyuntik key; jawaban dirender Markdown |
 
 ---
 
-## 3. Target State (v1.0)
+## 3. Target State (v1.2)
 
 Hasil akhir setelah 11 fase upgrade:
 
@@ -58,18 +62,28 @@ Hasil akhir setelah 11 fase upgrade:
 ```
 browsing_agent/
 ├── main.py              # Entry point CLI
-├── config.py            # Environment, settings, constants
+├── api.py               # FastAPI app factory + endpoint
+├── oplog.py             # Structured operational log
+├── config.py            # Environment, settings, constants (fail-fast)
 ├── agent/
-│   └── planner.py       # Logika perencanaan & orkestrasi agen
+│   ├── planner.py       # State per-query: tool limits, evidence, blocked domains
+│   ├── research.py      # Plan → select → review iteratif
+│   └── synthesis.py     # Sintesis jawaban + validasi citations
 ├── tools/
-│   ├── search.py        # Pluggable search providers (DuckDuckGo, dll)
+│   ├── search.py        # Pluggable search (DuckDuckGo/SearXNG), ranking
 │   ├── fetch.py         # HTTP-first fetcher + fallback browser
-│   └── extract.py       # Content extraction (title, headings, text, links)
+│   └── extract.py       # Content extraction (title, headings, text)
 ├── policy/
+│   ├── guardrails.py    # Guardrails query/URL
 │   ├── robots.py        # robots.txt checker
-│   └── rate_limit.py    # Rate limiter per domain
+│   ├── rate_limit.py    # Rate limiter per domain
+│   └── inbound_rate_limit.py  # Rate limit API per key (Redis)
 ├── storage/
-│   └── evidence.py      # Structured evidence log + deduplication
+│   └── evidence.py      # Structured evidence store + deduplication
+├── evals/               # Evaluasi offline
+├── scripts/             # Utility manual
+├── frontend/            # UI statis
+├── nginx/               # Template ingress
 └── tests/               # Unit tests (pytest)
 ```
 
@@ -77,11 +91,11 @@ browsing_agent/
 | Fitur | Deskripsi |
 |-------|-----------|
 | **HTTP-first Fetching** | `httpx` sebagai default, Selenium/Playwright fallback untuk JS-heavy pages. |
-| **Content Extraction** | Menghasilkan: title, canonical URL, main text, headings, links, `fetched_at`, `status_code`. |
-| **Chunking** | Memotong halaman panjang secara terstruktur, bukan truncate mentah. |
+| **Content Extraction** | Menghasilkan: title, canonical URL, main text, headings, `fetched_at`, `status_code`. |
+| **Content Limit** | Konten dipotong ke `FETCH_MAX_CONTENT_CHARS`; tidak ada chunking/retrieval. |
 | **Evidence & Citations** | Setiap sumber yang di-fetch disimpan secara terstruktur; jawaban final mencantumkan URL sumber. |
-| **Search Ranking** | Filter & rank URL berdasarkan relevansi, freshness, source quality, deduplication. |
-| **Safe Crawling** | Cek `robots.txt`, transparent User-Agent, per-domain rate limit, stop pada 403/429/CAPTCHA. |
+| **Search Ranking** | Skor domain kredibel + dedup URL; freshness belum diimplementasikan. |
+| **Safe Crawling** | Cek `robots.txt`, transparent User-Agent, per-domain rate limit, stop pada 403/429; CAPTCHA-like belum diimplementasikan. |
 | **Tool Execution Limits** | Counter reset per query; batas maksimum tool calls & URLs per query. |
 | **CLI Improvement** | Mode argumen: `uv run main.py "your question" --verbose`; output sumber di akhir. |
 | **Testing** | Unit test untuk robots checker, rate limiter, URL normalization, extractor, tool-call limit. |
@@ -91,9 +105,9 @@ browsing_agent/
 ## 4. Functional Requirements
 
 ### FR-1: Pencarian Web
-- **FR-1.1**: Agen harus dapat melakukan pencarian web menggunakan DuckDuckGo sebagai default.
+- **FR-1.1**: Agen harus dapat melakukan pencarian web memakai provider yang dipilih lewat `SEARCH_PROVIDER` (`duckduckgo` atau `searxng`; template `searxng`).
 - **FR-1.2**: Arsitektur harus mendukung penambahan search provider lain (Google Custom Search, Brave Search) tanpa mengubah kode inti.
-- **FR-1.3**: Hasil pencarian harus di-rank berdasarkan relevansi, freshness, dan kualitas sumber.
+- **FR-1.3**: Hasil pencarian di-rank memakai skor domain kredibel (`SEARCH_TRUSTED_DOMAINS`) dan dedup URL; freshness belum diimplementasikan.
 - **FR-1.4**: Deduplikasi URL berdasarkan canonical URL / content hash.
 
 ### FR-2: Fetching Halaman Web
@@ -109,32 +123,30 @@ browsing_agent/
   - `canonical_url`
   - `main_text`
   - `headings`
-  - `links`
   - `fetched_at`
   - `status_code`
 - **FR-3.2**: Ekstraksi menggunakan library Readability/trafilatura/BeautifulSoup (bukan `body.text[:1500]`).
-- **FR-3.3**: Halaman panjang harus di-chunk secara terstruktur, bukan dipotong mentah.
+- **FR-3.3**: Konten dipotong ke `FETCH_MAX_CONTENT_CHARS`; aplikasi tidak memakai chunking/retrieval.
 
 ### FR-4: Evidence & Citations
 - **FR-4.1**: Setiap sumber yang di-fetch disimpan sebagai structured evidence:
-  - `url`, `title`, `snippet`, `fetched_at`, `text_chunks`
+  - `url`, `title`, `snippet`, `canonical_url`, `fetched_at`
 - **FR-4.2**: Jawaban final harus mencantumkan sumber URL.
 - **FR-4.3**: Deduplikasi berdasarkan canonical URL dan content hash.
 - **FR-4.4**: Prefer multiple sources untuk jawaban faktual.
 
 ### FR-5: Safe Crawling Policy
 - **FR-5.1**: Cek `robots.txt` menggunakan `urllib.robotparser` sebelum fetch.
-- **FR-5.2**: Gunakan transparent User-Agent:
-  `GigasBrowsingAgent/0.1 (+https://github.com/GigasTaufan/browsing_agent; contact: gigastaufan@gmail.com)`
+- **FR-5.2**: Gunakan User-Agent transparan dari `USER_AGENT`; template `.env.example` memakai `BrowsingAgent/0.1`.
 - **FR-5.3**: Implementasi rate limiter per domain.
-- **FR-5.4**: Stop atau backoff ketika menerima HTTP 403, 429, halaman CAPTCHA-like, atau robots disallow.
+- **FR-5.4**: Stop atau backoff pada HTTP 403/429 dan robots disallow; deteksi CAPTCHA-like belum diimplementasikan.
 - **FR-5.5**: Gunakan guardrails untuk menolak scraping ilegal, login/paywall bypass, dan personal data harvesting.
 
 ### FR-6: Tool Execution Control
 - **FR-6.1**: Tool-call counter harus di-reset per user query.
 - **FR-6.2**: Ganti global counter dengan per-run state.
 - **FR-6.3**: Pastikan `max_tool_calls` benar-benar menghentikan eksekusi.
-- **FR-6.4**: Tambah batasan `max_urls_per_query` dan `max_fetch_depth`.
+- **FR-6.4**: Batasan saat ini `MAX_URLS_PER_QUERY`; `max_fetch_depth` tidak diimplementasikan.
 
 ### FR-7: Agent Behavior
 - **FR-7.1**: Agen harus mengikuti alur:
@@ -188,15 +200,15 @@ flowchart TD
 
     subgraph Agent
         B["main.py: parse query & config"]
-        C["planner.py: susun rencana pencarian"]
-        D["search.py: pencarian DuckDuckGo / provider lain"]
+        C["research.py: susun rencana pencarian"]
+        D["search.py: pencarian SearXNG/DuckDuckGo"]
         E["Filter/Rank URLs"]
         F["policy/robots.py: cek robots.txt"]
         G["policy/rate_limit.py: cek rate limit"]
         H["fetch.py: HTTP-first / fallback browser"]
         I["extract.py: ekstrak konten terstruktur"]
         J["storage/evidence.py: simpan evidence"]
-        K["planner.py: synthesize jawaban + citations"]
+        K["synthesis.py: sintesis jawaban + citations"]
     end
 
     subgraph Output
@@ -221,11 +233,15 @@ flowchart TD
 | Modul | Tanggung Jawab |
 |-------|----------------|
 | `main.py` | Entry point, inisialisasi, CLI loop/argparse. |
-| `config.py` | Load `.env`, settings (MAX_TOOL_CALLS, USER_AGENT, dll), validasi konfigurasi. |
-| `agent/planner.py` | Orkestrasi alur agen, state management per-query, synthesize jawaban. |
-| `tools/search.py` | Interface search provider, implementasi DuckDuckGo, ranking hasil. |
+| `api.py` | FastAPI app factory: auth, rate limit, concurrency, endpoint. |
+| `oplog.py` | Structured operational log (JSON lines). |
+| `config.py` | Load `.env`, settings, validasi fail-fast. |
+| `agent/planner.py` | State management per-query: tool limits, evidence, blocked domains. |
+| `agent/research.py` | Loop plan → select → review; kuota per run. |
+| `agent/synthesis.py` | Sintesis jawaban dari evidence + validasi citations. |
+| `tools/search.py` | Interface search provider (DuckDuckGo/SearXNG), ranking hasil. |
 | `tools/fetch.py` | HTTP fetcher (`httpx`), browser fallback (Selenium), session reuse, retry. |
-| `tools/extract.py` | Parsing HTML, ekstraksi terstruktur, chunking. |
+| `tools/extract.py` | Parsing HTML, ekstraksi terstruktur (tanpa links/chunking). |
 | `policy/robots.py` | Cek `robots.txt`, parsing kebijakan situs. |
 | `policy/rate_limit.py` | Rate limiter per domain, backoff strategy. |
 | `storage/evidence.py` | Structured evidence store, deduplication, retrieval untuk citations. |
@@ -254,7 +270,7 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
   - Ganti global counter dengan per-run state (dataclass / dict).
   - Reset counter setiap kali `run_agent()` dipanggil.
   - Pastikan eksekusi berhenti saat `max_tool_calls` tercapai.
-  - Tambahkan `max_urls_per_query` dan `max_fetch_depth`.
+  - Tambahkan batasan `MAX_URLS_PER_QUERY`; `max_fetch_depth` tidak diimplementasikan.
 - **Acceptance Criteria**:
   - Tool-call counter = 0 untuk setiap query baru.
   - Agent berhenti ketika limit tercapai.
@@ -265,7 +281,7 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
   - `policy/robots.py`: Cek `robots.txt` via `urllib.robotparser`.
   - `policy/rate_limit.py`: Rate limiter per domain (in-memory / simple dict).
   - User-Agent transparan.
-  - Handling HTTP 403, 429, CAPTCHA-like pages.
+  - Handling HTTP 403/429; deteksi CAPTCHA-like belum diimplementasikan.
 - **Acceptance Criteria**:
   - robots.txt dicek sebelum setiap fetch.
   - Rate limit aktif per domain.
@@ -287,18 +303,17 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 - **Goal**: Ekstraksi konten yang lebih baik dan terstruktur.
 - **Deliverables**:
   - `tools/extract.py`: Gunakan BeautifulSoup / Readability / trafilatura.
-  - Output berisi: title, canonical URL, main text, headings, links, fetched_at, status_code.
-  - Implementasi chunking halaman panjang.
+  - Output berisi: title, canonical URL, main text, headings, fetched_at, status_code.
+  - Truncate konten ke `FETCH_MAX_CONTENT_CHARS`; tidak ada chunking.
 - **Acceptance Criteria**:
   - Output extraction terstruktur (Pydantic model).
-  - Tidak ada truncate mentah 1500 karakter.
-  - Chunking bekerja untuk halaman > threshold.
+  - Konten dipotong ke `FETCH_MAX_CONTENT_CHARS`.
 
 ### Phase 6 — Evidence and Citations
 - **Goal**: Setiap jawaban disertai sumber.
 - **Deliverables**:
   - `storage/evidence.py`: Simpan setiap fetch sebagai evidence.
-  - Field: url, title, snippet, fetched_at, text_chunks.
+  - Field: url, title, snippet, canonical_url, fetched_at.
   - Deduplication: canonical URL + content hash.
   - Final answer mencantumkan sumber URL.
 - **Acceptance Criteria**:
@@ -310,10 +325,10 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 - **Goal**: Peningkatan kualitas pencarian.
 - **Deliverables**:
   - Interface pluggable search provider:
-    - DuckDuckGo (default)
+    - DuckDuckGo
     - Google Custom Search (planned)
     - Brave Search (planned)
-  - Rank URLs: relevansi, freshness, source quality, deduplication.
+  - Rank URLs: skor domain kredibel + deduplication; freshness belum diimplementasikan.
 - **Acceptance Criteria**:
   - Provider dapat diganti via config tanpa ubah kode utama.
   - Ranking bekerja sesuai kriteria.
@@ -335,18 +350,12 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 - **Goal**: Sentralisasi konfigurasi.
 - **Deliverables**:
   - `config.py`: Load `.env`, validasi settings.
-  - Update `.env.example`.
+  - Update `.env.example` sebagai daftar kanonik.
   - Kelola dependensi di `pyproject.toml` dan kunci versinya di `uv.lock`.
-  - Settings baru:
-    - `MAX_TOOL_CALLS`
-    - `MAX_URLS_PER_QUERY`
-    - `REQUEST_TIMEOUT`
-    - `RATE_LIMIT_PER_DOMAIN_SECONDS`
-    - `USER_AGENT`
-    - `BROWSER_FALLBACK_ENABLED`
+  - Semua parameter operasional wajib di `.env`; `EVAL_*` hanya untuk runner evaluasi offline.
 - **Acceptance Criteria**:
-  - Semua settings di-atas tersedia di `config.py`.
-  - `.env.example` diperbarui.
+  - `config.py` fail-fast untuk variabel wajib.
+  - `.env.example` menjadi referensi nama/komentar/nilai.
   - Dependencies di-pin.
 
 ### Phase 10 — Tests
@@ -354,11 +363,9 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 - **Deliverables**:
   - `tests/` dengan `pytest`.
   - Unit test untuk:
-    - robots checker
-    - rate limiter
-    - URL normalization
-    - extractor
-    - tool-call limit reset
+    - config, guardrails, robots, rate limit
+    - search provider, fetch/extract, evidence
+    - research/synthesis, tracing, frontend, evaluasi
   - Mocked fetch tests (tidak mengakses website nyata).
 - **Acceptance Criteria**:
   - Test suite dapat dijalankan dengan `pytest`.
@@ -385,7 +392,7 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 
 **Skenario**:
 1. Pengguna menjalankan: `uv run main.py "Siapa penemu telepon?"`
-2. Agen mencari via DuckDuckGo.
+2. Agen mencari via provider sesuai `SEARCH_PROVIDER` (template SearXNG).
 3. Agen memilih URL terbaik, cek robots.txt, dan fetch.
 4. Agen menyusun jawaban: "Penemu telepon adalah Alexander Graham Bell."
 5. Agen mencantumkan sumber: `https://example.com/biography/bell`
@@ -444,21 +451,12 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 | `pytest-mock` atau `unittest.mock` | Mocking fetch (Phase 10) |
 
 ### 9.6 Environment Variables
-| Variable | Required | Default | Keterangan |
-|----------|----------|---------|------------|
-| `MODELHUB_API_KEY` | Wajib | — | API Key ModelHub (provider utama) |
-| `MODELHUB_BASE_URL` | Opsional | ModelHub | Base URL ModelHub |
-| `MODELHUB_MODEL_NAME` | Opsional | `gpt-4o-mini` | Nama model |
-| `AZURE_OPENAI_ENDPOINT` | Opsional | — | Endpoint Azure OpenAI (fallback) |
-| `AZURE_OPENAI_API_KEY` | Opsional | — | API Key Azure OpenAI (fallback) |
-| `AZURE_OPENAI_DEPLOYMENT_NAME` | Opsional | `gpt-4o-mini` | Nama deployment |
-| `AZURE_OPENAI_PREVIEW_API_VERSION` | Opsional | — | Versi API preview |
-| `MAX_TOOL_CALLS` | Opsional | `5` | Batas pemanggilan tool per query |
-| `MAX_URLS_PER_QUERY` | Opsional | `3` | Batas URL yang di-fetch per query |
-| `REQUEST_TIMEOUT` | Opsional | `30` | Timeout request (detik) |
-| `RATE_LIMIT_PER_DOMAIN_SECONDS` | Opsional | `1` | Delay antar request ke domain yang sama |
-| `USER_AGENT` | Opsional | `BrowsingAgent/0.1` | User-Agent string |
-| `BROWSER_FALLBACK_ENABLED` | Opsional | `true` | Aktifkan fallback browser |
+
+Semua parameter operasional wajib di `.env`; `.env.example` adalah daftar kanonik.
+`config.py` fail-fast untuk variabel wajib. Azure OpenAI dan path Chrome opsional;
+variabel Compose (`RATE_LIMIT_REDIS_URL`, `SEARXNG_BASE_URL`,
+`MLFLOW_CONTAINER_TRACKING_URI`, `MLFLOW_EXPERIMENT_ID`, `SEARCH_PROVIDER`,
+`NGINX_PORT`) wajib untuk stack Compose. `EVAL_*` hanya untuk runner evaluasi offline.
 
 ---
 
@@ -467,15 +465,15 @@ Proyek dikerjakan dalam **11 fase** sesuai roadmap.
 Aplikasi telah memenuhi semua acceptance criteria:
 
 - [x] Agen dapat menjawab pertanyaan informasi umum menggunakan search + browsing.
-- [x] Setiap jawaban mencantumkan sumber (URL).
+- [x] Setiap jawaban yang dirilis memiliki citation valid; tanpa bukti, agen menolak menjawab tanpa citation.
 - [x] `robots.txt` dicek sebelum setiap fetch.
 - [x] Rate limiter aktif per domain.
 - [x] Tool-call counter di-reset per user query.
 - [x] Browser di-reuse atau hanya digunakan sebagai fallback.
 - [x] Tidak ada stealth, proxy rotation, CAPTCHA bypass, atau paywall bypass.
 - [x] CLI mendukung mode argumen dan mode interaktif.
-- [x] Test suite lolos 100% (`pytest`).
-- [x] Semua settings terpusat di `config.py` dan `.env`.
+- [x] Quality gate hijau: `ruff`, `mypy`, `pytest`; coverage ≥83%.
+- [x] Parameter runtime terpusat di `config.py`/`.env`; parameter evaluasi di `evals/schema.py`/`EVAL_*`.
 
 ---
 

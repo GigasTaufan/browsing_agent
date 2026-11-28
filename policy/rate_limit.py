@@ -48,8 +48,3 @@ class DomainRateLimiter:
             print(f"[Rate Limit]: Menunggu {wait_time:.2f}s sebelum request ke {domain}...")
             time.sleep(wait_time)
         return wait_time
-
-    def reset(self) -> None:
-        """Reset semua tracking (berguna untuk testing)."""
-        with self._lock:
-            self._next_allowed.clear()

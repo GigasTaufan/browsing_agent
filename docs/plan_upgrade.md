@@ -3,7 +3,7 @@
 Goal: upgrade repo `browsing_agent` dari MVP menjadi general browsing information agent yang aman, modular, dan legal-compliant.
 
 Context:
-Current repo uses LangChain agent + DuckDuckGo search + HTTP-first fetch + Selenium fallback. Improve architecture without adding stealth/bypass behavior.
+Current repo uses LangChain + pluggable search (DuckDuckGo/SearXNG) + HTTP-first fetch + Selenium fallback. Improve architecture without adding stealth/bypass behavior.
 
 ---
 
@@ -18,7 +18,7 @@ Phase 1 — Refactor structure ✅ **COMPLETED**
 
 Phase 2 — Fix tool execution limits ✅ **COMPLETED**
 - Reset tool-call counter per user query (AgentRunState).
-- Max URLs per query and max fetch depth enforced.
+- Max URLs per query enforced; `max_fetch_depth` tidak diimplementasikan.
 
 Phase 3 — Add safe crawling policy ✅ **COMPLETED**
 - `robots.txt` checker with TTL cache (`urllib.robotparser`).
@@ -29,14 +29,14 @@ Phase 3 — Add safe crawling policy ✅ **COMPLETED**
 
 Phase 4 — Improve fetching ✅ **COMPLETED**
 - HTTP-first fetcher with `httpx`.
-- Selenium only as fallback for JS-heavy pages (<500 chars).
+- Selenium only as fallback for JS-heavy pages (ambang `BROWSER_JS_HEAVY_MIN_CHARS`; template 500).
 - Reuse browser session (singleton via `_browser_instance`).
 - Timeout, retry with exponential backoff, content-type filtering.
 
 Phase 5 — Improve extraction ✅ **COMPLETED**
-- Extract: title, canonical URL, main text, headings, links, fetched_at, status_code.
+- Extract: title, canonical URL, main text, headings, fetched_at, status_code.
 - `trafilatura` primary, `BeautifulSoup` fallback.
-- Chunk long pages instead of blind truncate.
+- Truncate content to `FETCH_MAX_CONTENT_CHARS`; no chunking/retrieval.
 
 Phase 6 — Evidence and citations ✅ **COMPLETED**
 - Structured evidence store (`EvidenceStore`) with SHA256 dedup.
@@ -44,7 +44,7 @@ Phase 6 — Evidence and citations ✅ **COMPLETED**
 - Prefer multiple sources.
 
 Phase 7 — Search and ranking ✅ **COMPLETED**
-- DuckDuckGo default with multi-backend retry (`lite` → `auto`).
+- Provider from `SEARCH_PROVIDER` (template `searxng`); DDG retry ladder from `DDG_RETRY_BACKENDS`.
 - Rank by domain quality (`.edu`, `.gov`, Wikipedia, etc.).
 - URL deduplication.
 
@@ -54,11 +54,10 @@ Phase 8 — Agent behavior ✅ **COMPLETED**
 
 Phase 9 — Config and environment ✅ **COMPLETED**
 - Centralized `config.py` + `.env.example`.
-- Settings: `MAX_TOOL_CALLS`, `MAX_URLS_PER_QUERY`, `REQUEST_TIMEOUT`, `RATE_LIMIT_PER_DOMAIN_SECONDS`, `USER_AGENT`, `BROWSER_FALLBACK_ENABLED`.
+- All operational settings are required in `.env`; see `.env.example`.
 
 Phase 10 — Tests ✅ **COMPLETED**
-- `tests/` directory with 5 test files:
-  - `test_evidence.py`, `test_extract.py`, `test_limits.py`, `test_rate_limit.py`, `test_robots.py`
+- `tests/` suite (20+ files) covering config, API, search, fetch/extract, evidence, research/synthesis, tracing, frontend, evaluation, integration.
 
 Phase 11 — CLI ✅ **COMPLETED**
 - One-shot mode: `uv run main.py "your question"`
@@ -71,7 +70,7 @@ Phase 11 — CLI ✅ **COMPLETED**
 ## Acceptance Criteria (All Met ✅)
 
 - [x] Agent can answer general information queries using search + browsing.
-- [x] Every answer includes sources (citations).
+- [x] Released answers always have valid citations; no-evidence requests refuse without citations.
 - [x] `robots.txt` is checked before fetch.
 - [x] Rate limit works per domain.
 - [x] Tool-call limit resets per user query.

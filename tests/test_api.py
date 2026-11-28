@@ -7,9 +7,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 import config
-from agent.planner import get_run_state
 from api import create_app
-from storage.evidence import EvidenceItem
+from policy.inbound_rate_limit import RateLimitDecision
+from tests.research_helpers import research_decision
+from tools import fetch as fetch_module
+from tools import search as search_module
 
 API_KEY = "caller-test-key"
 
@@ -20,38 +22,60 @@ class StubAgent:
         self.error = None
 
     def invoke(self, payload):
+        decision = research_decision(payload)
+        if decision is not None:
+            return {"messages": [SimpleNamespace(type="ai", content=decision)]}
         self.calls.append(payload)
         if self.error is not None:
             raise self.error
 
-        state = get_run_state()
-        assert state is not None
-        state.evidence_store.items.append(
-            EvidenceItem(
-                url="https://example.com/article",
-                title="Example article",
-                snippet="A short source excerpt.",
-                canonical_url="https://example.com/article",
-            )
-        )
-        return {"messages": [SimpleNamespace(type="ai", content="An answer.")]}
+        return {"messages": [SimpleNamespace(type="ai", content="An answer. [1]")]}
 
 
 class StubLimiter:
     """Rate limiter stub: mencatat key dan mengembalikan keputusan tetap."""
 
-    def __init__(self, allowed: bool):
-        self.allowed = allowed
+    def __init__(self, decision: RateLimitDecision):
+        self.decision = decision
         self.keys: list[str] = []
 
-    async def check(self, api_key: str) -> bool:
+    async def check(self, api_key: str) -> RateLimitDecision:
         self.keys.append(api_key)
-        return self.allowed
+        return self.decision
+
+
+@pytest.fixture(autouse=True)
+def web_evidence(monkeypatch):
+    """Stub batas HTTP/search tanpa jaringan; pipeline grounding tetap dijalankan."""
+    monkeypatch.setattr(config, "SEARCH_PROVIDER", "duckduckgo")
+    monkeypatch.setattr(config, "SEARCH_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(config, "BROWSER_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(
+        search_module,
+        "_search_ddgs",
+        lambda query: [
+            search_module.SearchResult(
+                title="Example article",
+                url="https://example.com/article",
+                snippet="A short source excerpt.",
+            )
+        ],
+    )
+    monkeypatch.setattr(fetch_module, "is_url_blocked", lambda url: (False, ""))
+    monkeypatch.setattr(fetch_module, "is_url_allowed", lambda url: True)
+    monkeypatch.setattr(fetch_module, "_rate_limiter", Mock())
+    fetcher = Mock(max_retries=1)
+    fetcher.fetch.return_value = (
+        200,
+        "text/html",
+        "<title>Example article</title><body>A short source excerpt.</body>",
+    )
+    monkeypatch.setattr(fetch_module, "_get_http_fetcher", lambda: fetcher)
 
 
 @pytest.fixture
 def api_client(monkeypatch):
-    monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    monkeypatch.setattr(config, "API_ALLOWED_KEYS", (API_KEY,))
     # Hermetic: jangan bangun Redis limiter dari .env lokal di unit test.
     monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
     agent = StubAgent()
@@ -78,7 +102,7 @@ def test_valid_question_returns_separate_answer_and_citations(api_client):
 
     assert response.status_code == 200
     assert response.json() == {
-        "answer": "An answer.",
+        "answer": "An answer. [1]",
         "citations": [
             {
                 "id": 1,
@@ -89,7 +113,7 @@ def test_valid_question_returns_separate_answer_and_citations(api_client):
         ],
     }
     assert len(agent.calls) == 1
-    assert agent.calls[0]["messages"] == [{"role": "user", "content": "What is new?"}]
+    assert agent.calls[0]["messages"][0] == {"role": "user", "content": "What is new?"}
 
 
 @pytest.mark.parametrize(
@@ -138,6 +162,7 @@ def test_agent_failure_returns_generic_500_envelope(api_client):
     }
     assert "private backend detail" not in response.text
     assert len(agent.calls) == 1
+    assert 'browsing_agent_requests_total{outcome="error"} 1' in client.get("/metrics").text
 
 
 def test_health_check_is_public_and_does_not_expose_configuration(api_client):
@@ -151,7 +176,8 @@ def test_health_check_is_public_and_does_not_expose_configuration(api_client):
 
 
 def test_agent_is_created_once_and_fetcher_is_cleaned_at_shutdown(monkeypatch):
-    monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    # Satu-satunya test yang tidak patch validator startup: lifespan (dan AGENTS.md
+    # quality gate) boleh jalan dengan kredensial nyata .env/CI.
     monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
     factory = Mock(return_value=StubAgent())
     cleanup = Mock()
@@ -181,9 +207,9 @@ def test_overlong_question_is_rejected(api_client, monkeypatch):
 
 
 def test_rate_limit_exceeded_returns_429(monkeypatch):
-    monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    monkeypatch.setattr(config, "API_ALLOWED_KEYS", (API_KEY,))
     monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
-    limiter = StubLimiter(allowed=False)
+    limiter = StubLimiter(RateLimitDecision.LIMITED)
 
     with TestClient(create_app(agent_factory=lambda: StubAgent(), rate_limiter=limiter)) as client:
         response = client.post(
@@ -200,10 +226,30 @@ def test_rate_limit_exceeded_returns_429(monkeypatch):
         }
     }
     assert limiter.keys == [API_KEY]
+    assert 'browsing_agent_requests_total{outcome="rate_limited"} 1' in client.get("/metrics").text
+
+
+def test_redis_unavailable_returns_503_and_does_not_run_agent(monkeypatch):
+    """ADR-0006: limiter tidak terjangkau -> fail-closed 503, bukan diizinkan."""
+    monkeypatch.setattr(config, "API_ALLOWED_KEYS", (API_KEY,))
+    monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
+    limiter = StubLimiter(RateLimitDecision.UNAVAILABLE)
+    agent = StubAgent()
+
+    with TestClient(create_app(agent_factory=lambda: agent, rate_limiter=limiter)) as client:
+        response = client.post(
+            "/api/v1/ask",
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            json={"question": "Question"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "dependency_unavailable"
+    assert agent.calls == []
 
 
 def test_concurrency_cap_returns_429_when_exhausted(monkeypatch):
-    monkeypatch.setenv("API_ALLOWED_KEYS", API_KEY)
+    monkeypatch.setattr(config, "API_ALLOWED_KEYS", (API_KEY,))
     monkeypatch.setattr(config, "RATE_LIMIT_REDIS_URL", None)
     monkeypatch.setattr(config, "MAX_CONCURRENT_AGENT_RUNS", 1)
 
@@ -227,3 +273,45 @@ def test_concurrency_cap_returns_429_when_exhausted(monkeypatch):
     assert busy.status_code == 429
     assert busy.json()["error"]["code"] == "server_busy"
     assert ok.status_code == 200
+
+
+def test_metrics_expose_outcome_counters_and_latency(api_client):
+    """ADR-0010: /metrics bisa di-scrape tanpa auth dan mencerminkan outcome request."""
+    client, agent, _ = api_client
+    client.post(
+        "/api/v1/ask",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        json={"question": "What is new?"},
+    )
+    client.post(
+        "/api/v1/ask", headers={"Authorization": "Bearer wrong-key"}, json={"question": "x"}
+    )
+
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert 'browsing_agent_requests_total{outcome="ok"} 1' in response.text
+    assert 'browsing_agent_requests_total{outcome="unauthorized"} 1' in response.text
+    assert "browsing_agent_request_duration_seconds_count 2" in response.text
+    assert len(agent.calls) == 1
+
+
+def test_ask_logs_single_request_event(api_client, monkeypatch):
+    """Satu event final per request (durasi/status) menggantikan pasangan ask_ok/ask_rejected."""
+    client, _, _ = api_client
+    events = []
+    monkeypatch.setattr(
+        "api.oplog.log_event", lambda event, **fields: events.append((event, fields))
+    )
+
+    client.post(
+        "/api/v1/ask",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        json={"question": "What is new?"},
+    )
+
+    final_events = [fields for event, fields in events if event == "api.request"]
+    assert len(final_events) == 1
+    assert final_events[0]["outcome"] == "ok"
+    assert final_events[0]["status"] == 200
+    assert "duration_ms" in final_events[0]

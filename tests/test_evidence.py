@@ -1,8 +1,11 @@
 """
 Unit test untuk storage/evidence.py.
-Verifikasi deduplikasi dan citations.
+Verifikasi deduplikasi dan urutan item evidence.
 """
 
+import pytest
+
+import config
 from storage.evidence import EvidenceStore
 from tools.extract import ExtractedPage
 
@@ -15,7 +18,6 @@ def make_extracted(url: str, text: str, title: str | None = None) -> ExtractedPa
         main_text=text,
         canonical_url=url,
         headings=[],
-        links=[],
         fetched_at="2024-01-01T00:00:00+00:00",
         status_code=200,
     )
@@ -63,14 +65,63 @@ def test_evidence_store_dedup_by_similar_content():
     assert len(store.items) == 1
 
 
-def test_evidence_citations_format():
-    """Citations dalam format yang benar."""
+def test_evidence_keeps_unique_items_in_fetch_order():
+    """Jawaban & citations memakai `items` apa adanya: urutan fetch, tanpa duplikat."""
     store = EvidenceStore()
 
     store.add(make_extracted("https://a.com", "Teks A", "Judul A"))
     store.add(make_extracted("https://b.com", "Teks B", "Judul B"))
+    store.add(make_extracted("https://a.com", "Teks A", "Judul A"))
 
-    citations = store.get_citations()
-    assert len(citations) == 2
-    assert "[Judul A](https://a.com)" in citations[0]
-    assert "[Judul B](https://b.com)" in citations[1]
+    assert [item.url for item in store.items] == ["https://a.com", "https://b.com"]
+    assert store.items[0].canonical_url == "https://a.com"
+    assert store.items[1].title == "Judul B"
+
+
+@pytest.mark.parametrize("status,text", [(404, "Error page"), (200, "  "), (500, "Server error")])
+def test_failed_and_empty_pages_are_not_citations(status, text):
+    page = make_extracted("https://example.com/a", text)
+    page.status_code = status
+    store = EvidenceStore()
+    assert store.add(page) is None
+    assert store.items == []
+
+
+def test_snippet_length_comes_from_config(monkeypatch):
+    monkeypatch.setattr(config, "EVIDENCE_SNIPPET_CHARS", 5)
+    store = EvidenceStore()
+
+    item = store.add(make_extracted("https://example.com/a", "abcdefghij"))
+
+    assert item is not None
+    assert item.snippet == "abcde"
+
+
+def test_hash_window_comes_from_config(monkeypatch):
+    monkeypatch.setattr(config, "EVIDENCE_HASH_CHARS", 4)
+    first = make_extracted("https://a.example/x", "abcd1111")
+    second = make_extracted("https://b.example/y", "abcd2222")
+
+    assert EvidenceStore._compute_hash(first) == EvidenceStore._compute_hash(second)
+
+    monkeypatch.setattr(config, "EVIDENCE_HASH_CHARS", 6)
+
+    assert EvidenceStore._compute_hash(first) != EvidenceStore._compute_hash(second)
+
+
+def test_same_content_different_url_is_deduplicated():
+    """Konten identik di URL berbeda tetap satu evidence (hash isi, bukan URL)."""
+    store = EvidenceStore()
+
+    store.add(make_extracted("https://a.example/x", "konten yang sama"))
+
+    assert store.add(make_extracted("https://b.example/y", "konten yang sama")) is None
+    assert len(store.items) == 1
+
+
+def test_evidence_item_does_not_expose_content_hash():
+    """Hash hanya dipakai internal store, bukan bagian schema evidence."""
+    item = EvidenceStore().add(make_extracted("https://example.com/a", "konten"))
+
+    assert item is not None
+    assert "content_hash" not in item.model_dump()

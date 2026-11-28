@@ -1,25 +1,27 @@
 """Authenticated FastAPI interface for the browsing agent."""
 
-import hashlib
 import hmac
-import os
 import threading
 import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.datastructures import State
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, field_validator
 from starlette.concurrency import run_in_threadpool
 
 import config
 import oplog
 from main import build_system_prompt, define_agent, load_llm, run_agent, setup_tracing
-from policy.inbound_rate_limit import RateLimiterProtocol, build_rate_limiter
-from tools.fetch import browse_tool, fetcher_cleanup
-from tools.search import search_tool
+from policy.inbound_rate_limit import (
+    RateLimitDecision,
+    RateLimiterProtocol,
+    build_rate_limiter,
+)
+from tools.fetch import fetcher_cleanup
 
 
 class AskRequest(BaseModel):
@@ -47,13 +49,65 @@ class AskResponse(BaseModel):
 
 def _default_agent_factory():
     model = load_llm()
-    return define_agent(
-        model=model, tools=[browse_tool, search_tool], system_prompt=build_system_prompt()
-    )
+    return define_agent(model=model, system_prompt=build_system_prompt())
 
 
 def _error(code: str, message: str) -> dict[str, dict[str, str]]:
     return {"error": {"code": code, "message": message}}
+
+
+def _rejected(
+    state: State,
+    reason: str,
+    status_code: int,
+    code: str,
+    message: str,
+    started: float,
+) -> JSONResponse:
+    """Tutup request yang ditolak (setelah auth lolos) dan kembalikan envelope error."""
+    return _finish(state, reason, started, status_code=status_code, body=_error(code, message))
+
+
+def _finish(
+    state: State,
+    outcome: str,
+    started: float,
+    *,
+    status_code: int,
+    body: dict,
+) -> JSONResponse:
+    """Tutup satu request: hitung metrik + event log dengan durasi."""
+    duration_seconds = time.monotonic() - started
+    counter = state.metrics["browsing_agent_requests_total"]
+    counter[outcome] = counter.get(outcome, 0) + 1
+    duration = state.metrics["browsing_agent_request_duration_seconds"]
+    duration["count"] += 1
+    duration["sum"] += duration_seconds
+    duration["max"] = max(duration["max"], duration_seconds)
+    oplog.log_event(
+        "api.request",
+        outcome=outcome,
+        status=status_code,
+        duration_ms=round(duration_seconds * 1000),
+    )
+    return JSONResponse(status_code=status_code, content=body)
+
+
+def _render_metrics(metrics: dict) -> str:
+    """Format eksposisi Prometheus untuk dua metrik in-process (ADR-0010)."""
+    lines = ["# TYPE browsing_agent_requests_total counter"]
+    lines += [
+        f'browsing_agent_requests_total{{outcome="{outcome}"}} {count}'
+        for outcome, count in sorted(metrics["browsing_agent_requests_total"].items())
+    ]
+    duration = metrics["browsing_agent_request_duration_seconds"]
+    lines += [
+        "# TYPE browsing_agent_request_duration_seconds summary",
+        f"browsing_agent_request_duration_seconds_count {duration['count']}",
+        f"browsing_agent_request_duration_seconds_sum {duration['sum']:.6f}",
+        f"browsing_agent_request_duration_seconds_max {duration['max']:.6f}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _authenticate(authorization: str | None) -> str:
@@ -66,13 +120,8 @@ def _authenticate(authorization: str | None) -> str:
             candidate = credential
 
     candidate_bytes = candidate.encode("utf-8")
-    allowed_keys = (
-        value.strip()
-        for value in os.environ.get("API_ALLOWED_KEYS", "").split(",")
-        if value.strip()
-    )
     matches = False
-    for allowed_key in allowed_keys:
+    for allowed_key in config.API_ALLOWED_KEYS:
         match = hmac.compare_digest(candidate_bytes, allowed_key.encode("utf-8"))
         matches = matches | match
 
@@ -101,6 +150,10 @@ def create_app(
         app.state.concurrency_semaphore = threading.BoundedSemaphore(
             config.MAX_CONCURRENT_AGENT_RUNS
         )
+        app.state.metrics = {
+            "browsing_agent_requests_total": {},
+            "browsing_agent_request_duration_seconds": {"count": 0, "sum": 0.0, "max": 0.0},
+        }
         try:
             app.state.agent = factory()
             yield
@@ -149,44 +202,78 @@ def create_app(
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/metrics", response_class=PlainTextResponse)
+    async def metrics() -> str:
+        # Counter dibaca/ditulis tanpa await di antara -> konsisten di event loop.
+        return _render_metrics(app.state.metrics)
+
     @app.post("/api/v1/ask", response_model=AskResponse)
     async def ask(
         payload: AskRequest,
         authorization: str | None = Header(default=None),
     ) -> AskResponse | JSONResponse:
         started = time.monotonic()
-        api_key = _authenticate(authorization)
-        key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:12]
+        state = app.state
+        try:
+            api_key = _authenticate(authorization)
+        except HTTPException as exc:
+            return _finish(
+                state,
+                "unauthorized",
+                started,
+                status_code=exc.status_code,
+                body=_error("unauthorized", "API key tidak valid."),
+            )
 
         if len(payload.question) > config.MAX_QUESTION_LENGTH:
-            oplog.log_event("api.ask_rejected", reason="overlong", key_hash=key_hash)
-            return JSONResponse(
-                status_code=422,
-                content=_error(
-                    "invalid_request",
-                    f"Pertanyaan terlalu panjang (maksimal {config.MAX_QUESTION_LENGTH} karakter).",
-                ),
+            return _rejected(
+                state,
+                "overlong",
+                422,
+                "invalid_request",
+                f"Pertanyaan terlalu panjang (maksimal {config.MAX_QUESTION_LENGTH} karakter).",
+                started,
             )
 
-        limiter = app.state.rate_limiter
-        if limiter is not None and not await limiter.check(api_key):
-            oplog.log_event("api.ask_rejected", reason="rate_limited", key_hash=key_hash)
-            return JSONResponse(
-                status_code=429,
-                content=_error(
-                    "rate_limited", "Terlalu banyak request. Coba lagi dalam satu menit."
-                ),
-            )
+        limiter = state.rate_limiter
+        if limiter is not None:
+            decision = await limiter.check(api_key)
+            if decision is RateLimitDecision.UNAVAILABLE:
+                # Fail-closed (ADR-0006): tanpa limiter, quota caller tidak dapat dijamin.
+                return _rejected(
+                    state,
+                    "dependency_unavailable",
+                    503,
+                    "dependency_unavailable",
+                    "Layanan pembatas request sedang tidak tersedia. Coba lagi nanti.",
+                    started,
+                )
+            if decision is RateLimitDecision.LIMITED:
+                return _rejected(
+                    state,
+                    "rate_limited",
+                    429,
+                    "rate_limited",
+                    "Terlalu banyak request. Coba lagi dalam satu menit.",
+                    started,
+                )
 
-        semaphore = app.state.concurrency_semaphore
+        semaphore = state.concurrency_semaphore
         if not semaphore.acquire(blocking=False):
-            oplog.log_event("api.ask_rejected", reason="server_busy", key_hash=key_hash)
-            return JSONResponse(
-                status_code=429,
-                content=_error("server_busy", "Server sedang sibuk. Coba lagi nanti."),
+            return _rejected(
+                state,
+                "server_busy",
+                429,
+                "server_busy",
+                "Server sedang sibuk. Coba lagi nanti.",
+                started,
             )
         try:
-            result = await run_in_threadpool(run_agent, app.state.agent, payload.question)
+            result = await run_in_threadpool(run_agent, state.agent, payload.question)
+        except Exception:
+            # Handler 500 global tidak tahu outcome; catat agar error agent terlihat di metrik.
+            _finish(state, "error", started, status_code=500, body={})
+            raise
         finally:
             semaphore.release()
         citations = [
@@ -198,12 +285,8 @@ def create_app(
             )
             for index, item in enumerate(result.citations, start=1)
         ]
-        oplog.log_event(
-            "api.ask_ok",
-            key_hash=key_hash,
-            duration_ms=round((time.monotonic() - started) * 1000),
-            citations=len(citations),
-        )
-        return AskResponse(answer=result.answer, citations=citations)
+        outcome = "ok" if citations else "ok_no_citations"
+        body = AskResponse(answer=result.answer, citations=citations).model_dump()
+        return _finish(state, outcome, started, status_code=200, body=body)
 
     return app

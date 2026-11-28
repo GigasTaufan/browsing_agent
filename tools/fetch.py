@@ -5,12 +5,10 @@ Browser session di-reuse (tidak launch per URL).
 Mematuhi robots.txt, rate limit, dan guardrails.
 """
 
-import os
 import threading
 import time
 
 import httpx
-from bs4 import BeautifulSoup
 from langchain.tools import tool
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -44,7 +42,7 @@ def _get_browser() -> webdriver.Chrome:
     if _browser_instance is None:
         print("[Browser Fetcher]: Meluncurkan Chrome (headless)...")
         chrome_options = Options()
-        chrome_binary = os.environ.get("CHROME_BIN")
+        chrome_binary = config.CHROME_BIN
         if chrome_binary:
             chrome_options.binary_location = chrome_binary
         chrome_options.add_argument("--headless=new")
@@ -52,7 +50,7 @@ def _get_browser() -> webdriver.Chrome:
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument(f"--user-agent={config.USER_AGENT}")
 
-        chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+        chromedriver_path = config.CHROMEDRIVER_PATH
         if chromedriver_path:
             service = Service(chromedriver_path)
         else:
@@ -67,8 +65,8 @@ def close_browser() -> None:
     with _browser_lock:
         if _browser_instance is not None:
             print("[Browser Fetcher]: Menutup Chrome...")
-            _browser_instance.quit()
-            _browser_instance = None
+            driver, _browser_instance = _browser_instance, None
+            driver.quit()
 
 
 # --- HTTP Fetcher ---
@@ -97,7 +95,7 @@ class HttpFetcher:
                 return response.status_code, content_type, response.text
 
             except (httpx.TimeoutException, httpx.ConnectError) as e:
-                wait = 2**attempt
+                wait = config.FETCH_BACKOFF_BASE_SECONDS**attempt
                 print(
                     f"[HTTP Fetch]: Retry {attempt}/{self.max_retries} untuk {url} (error: {e}). Menunggu {wait}s..."
                 )
@@ -115,8 +113,10 @@ class HttpFetcher:
         self.client.close()
 
 
-# Global HTTP fetcher instance
+# Global HTTP fetcher instance: satu per satu request agar client tidak dipakai
+# bersamaan oleh beberapa thread API (retry/backoff pun tidak saling rebut).
 _http_fetcher: HttpFetcher | None = None
+_fetcher_lock = threading.Lock()
 
 
 def _get_http_fetcher() -> HttpFetcher:
@@ -130,27 +130,27 @@ def _get_http_fetcher() -> HttpFetcher:
 def close_http_fetcher() -> None:
     """Menutup HTTP fetcher."""
     global _http_fetcher
-    if _http_fetcher is not None:
-        _http_fetcher.close()
-        _http_fetcher = None
+    with _fetcher_lock:
+        if _http_fetcher is not None:
+            _http_fetcher.close()
+            _http_fetcher = None
 
 
 # Global rate limiter
 _rate_limiter = DomainRateLimiter()
 
 
-def _is_js_heavy(content_type: str, html: str) -> bool:
+def _is_js_heavy(content_type: str, body_text: str) -> bool:
     """
     Deteksi halaman yang mungkin perlu browser (JS-heavy).
-    Heuristik sederhana: HTML dengan teks bersih kurang dari 500 karakter.
+
+    Heuristik: HTML dengan teks bersih < BROWSER_JS_HEAVY_MIN_CHARS. `body_text` adalah
+    teks yang sudah diekstrak `extract_page`, agar HTML tidak diparse dua kali.
     """
     if "html" not in content_type:
         return False  # Bukan HTML — tidak ada gunanya pakai browser
 
-    # Jika body text terlalu pendek mungkin JS belum render
-    # Threshold: < 500 karakter teks bersih
-    text_length = len(" ".join(BeautifulSoup(html, "lxml").get_text().split()))
-    return text_length < 500
+    return len(body_text) < config.BROWSER_JS_HEAVY_MIN_CHARS
 
 
 @tool(
@@ -163,7 +163,10 @@ def browse_tool(url: str) -> str:
     Fallback ke Selenium jika halaman JS-heavy.
     Mematuhi: limit tool, guardrails, robots.txt, rate limit.
     """
-    # 1) Cek domain yang sudah diblokir (403/429) untuk query ini
+    # 1) Guardrails + cek domain yang sudah diblokir (403/429) untuk query ini
+    blocked, reason = is_url_blocked(url)
+    if blocked:
+        return reason
     if is_domain_blocked_for_run(url):
         return "[Browser Tool]: Domain ini sudah diblokir untuk query ini (403/429 sebelumnya)."
 
@@ -172,11 +175,6 @@ def browse_tool(url: str) -> str:
         check_and_increment("browse_tool", config.MAX_TOOL_CALLS)
     except ToolLimitReached as e:
         return str(e)
-
-    # 3) Guardrails
-    blocked, reason = is_url_blocked(url)
-    if blocked:
-        return reason
 
     # Batasi URL unik sebelum akses jaringan, termasuk pengecekan robots.txt.
     state = get_run_state()
@@ -187,20 +185,22 @@ def browse_tool(url: str) -> str:
                 f"(maksimum {config.MAX_URLS_PER_QUERY} URL unik)."
             )
 
-    # 4) Robots.txt check
+    # 3) Robots.txt check
     if not is_url_allowed(url):
         return f"[Robots Policy]: URL '{url}' tidak diizinkan oleh robots.txt."
 
-    # 5) Rate limit
+    # 4) Rate limit
     _rate_limiter.wait_if_needed(url)
 
     # Percobaan gagal tetap memakai kuota; retry/fallback URL yang sama tidak.
     if state is not None:
         state.urls_fetched.add(url)
-    # 6) HTTP fetch (primary)
+
+    # 5) HTTP fetch (primary)
     print(f"\n[Browser Tool]: Fetching {url} via HTTP...")
-    fetcher = _get_http_fetcher()
-    status, content_type, html = fetcher.fetch(url)
+    with _fetcher_lock:
+        fetcher = _get_http_fetcher()
+        status, content_type, html = fetcher.fetch(url)
 
     if status == 0:
         return f"[Browser Tool]: Gagal fetch {url} setelah {fetcher.max_retries} retry."
@@ -212,21 +212,25 @@ def browse_tool(url: str) -> str:
             "Mungkin terkena rate limit atau blokir."
         )
 
-    # 7) Skip non-HTML content
+    if not 200 <= status < 300:
+        return f"[Browser Tool]: HTTP {status}; halaman gagal tidak dipakai sebagai sumber."
+
+    # 6) Skip non-HTML content
     if "html" not in content_type:
         return (
             f"[Browser Tool]: Content-Type '{content_type}' bukan HTML. "
             "Skip konten non-halaman web."
         )
 
-    # 8) Cek apakah perlu fallback ke browser (JS-heavy detection)
-    if config.BROWSER_FALLBACK_ENABLED and _is_js_heavy(content_type, html):
+    # 7) Ekstraksi sekali; HTML tidak diparse ulang untuk deteksi JS-heavy.
+    extracted = extract_page(html, url, status_code=status)
+    if config.BROWSER_FALLBACK_ENABLED and _is_js_heavy(content_type, extracted.main_text):
         print("[Browser Tool]: Teks halaman terlalu pendek, mencoba fallback via Selenium...")
         try:
             with _browser_lock:
                 driver = _get_browser()
                 driver.get(url)
-                # Explicit wait: deteksi <body> hadir, maksimal 10 detik.
+                # Explicit wait: deteksi <body> hadir, maksimal BROWSER_WAIT_TIMEOUT detik.
                 body_element = WebDriverWait(driver, config.BROWSER_WAIT_TIMEOUT).until(
                     EC.presence_of_element_located((By.TAG_NAME, "body"))
                 )
@@ -243,8 +247,7 @@ def browse_tool(url: str) -> str:
         except Exception as e:
             return f"[Browser Tool]: Fallback browser gagal: {e}"
 
-    # 9) Extract structured content & store evidence
-    extracted = extract_page(html, url, status_code=status)
+    # 8) Store evidence
     _store_evidence(extracted)
 
     print(f"[Browser Tool]: Sukses fetch via HTTP ({len(extracted.main_text)} chars).")
@@ -270,7 +273,7 @@ def _truncated_for_llm(extracted, max_chars: int | None = None) -> str:
         parts.append(f"Judul: {extracted.title}")
     parts.append(f"URL: {extracted.url}")
     if extracted.headings:
-        parts.append(f"Headings: {' | '.join(extracted.headings[:5])}")
+        parts.append(f"Headings: {' | '.join(extracted.headings[: config.FETCH_MAX_HEADINGS])}")
     text = extracted.main_text[:max_chars]
     parts.append(f"Konten:\n{text}")
     return "\n\n".join(parts)

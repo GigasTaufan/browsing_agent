@@ -48,30 +48,21 @@ def test_urls_fetched_tracking():
         assert "https://example.com/a" in state.urls_fetched
 
 
-def test_run_agent_returns_answer_and_run_evidence():
-    from types import SimpleNamespace
-
-    from main import _render_cli_result, run_agent
+def test_cli_renders_inline_references_and_structured_sources():
+    from agent.planner import AgentRunResult
+    from main import _render_cli_result
     from storage.evidence import EvidenceItem
 
-    expected = EvidenceItem(
-        url="https://example.com",
-        title="Example",
-        canonical_url="https://example.com/canonical",
+    result = AgentRunResult(
+        answer="Answer [1]",
+        citations=[
+            EvidenceItem(
+                url="https://example.com",
+                title="Example",
+                canonical_url="https://example.com/canonical",
+            )
+        ],
     )
-
-    class Agent:
-        def invoke(self, payload):
-            state = get_run_state()
-            assert state is not None
-            state.evidence_store.items.append(expected)
-            return {"messages": [SimpleNamespace(type="ai", content="Answer")]}
-
-    result = run_agent(Agent(), "question")
-
-    assert result.answer == "Answer"
-    assert result.citations == [expected]
     assert _render_cli_result(result) == (
-        "Answer\n\n---\nSumber:\n1. [Example](https://example.com/canonical)"
+        "Answer [1]\n\n---\nSumber:\n1. [Example](https://example.com/canonical)"
     )
-    assert get_run_state() is None

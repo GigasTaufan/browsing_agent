@@ -5,10 +5,11 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import httpx
 import pytest
 
 import config
-from agent.planner import AgentRunState
+from agent.planner import AgentRunState, get_run_state
 from tools import fetch
 
 
@@ -58,11 +59,52 @@ def test_zero_limit_prevents_network(fetcher, monkeypatch):
 
 @pytest.mark.parametrize("length, expected", [(499, True), (500, False)])
 def test_js_detection_boundary(length, expected):
-    assert fetch._is_js_heavy("text/html", f"<body>{'a' * length}</body>") is expected
+    assert fetch._is_js_heavy("text/html", "a" * length) is expected
+
+
+def test_js_detection_uses_configured_threshold(monkeypatch):
+    monkeypatch.setattr(config, "BROWSER_JS_HEAVY_MIN_CHARS", 10)
+
+    assert fetch._is_js_heavy("text/html", "a" * 9) is True
+    assert fetch._is_js_heavy("text/html", "a" * 10) is False
+
+
+def test_http_retry_backoff_uses_config(monkeypatch):
+    monkeypatch.setattr(config, "FETCH_MAX_RETRIES", 3)
+    monkeypatch.setattr(config, "FETCH_BACKOFF_BASE_SECONDS", 3.0)
+    fetcher = fetch.HttpFetcher()
+    fetcher.client.close()
+    fetcher.client = Mock()
+    fetcher.client.get.side_effect = httpx.ConnectError("down")
+    sleeps: list[float] = []
+    monkeypatch.setattr(fetch.time, "sleep", sleeps.append)
+
+    assert fetcher.fetch("https://example.com/a") == (0, "", "")
+    assert sleeps == [3.0, 9.0, 27.0]
 
 
 def test_non_html_does_not_need_browser():
-    assert not fetch._is_js_heavy("application/json", "{}")
+    assert not fetch._is_js_heavy("application/json", "")
+
+
+def test_short_html_is_parsed_once(fetcher, monkeypatch):
+    """Deteksi JS-heavy memakai teks hasil extract_page, bukan parse HTML kedua."""
+    monkeypatch.setattr(config, "BROWSER_FALLBACK_ENABLED", False)
+    parse = Mock(wraps=fetch.extract_page)
+    monkeypatch.setattr(fetch, "extract_page", parse)
+
+    fetch.browse_tool.invoke({"url": "https://example.com/a"})
+
+    assert parse.call_count == 1
+
+
+def test_internal_url_is_rejected_before_network(fetcher):
+    """Guardrail SSRF dicek sebelum tool limit terpakai dan sebelum fetch."""
+    result = fetch.browse_tool.invoke({"url": "http://169.254.169.254/latest/meta-data/"})
+
+    assert "Guardrail" in result
+    fetcher.fetch.assert_not_called()
+    assert get_run_state().tool_calls["browse_tool"] == 0
 
 
 def test_short_html_uses_browser_fallback(fetcher, monkeypatch):
@@ -173,8 +215,8 @@ def test_browser_access_and_cleanup_are_serialized(fetcher, monkeypatch):
 
 
 def test_browser_uses_preinstalled_chromedriver_without_download(monkeypatch):
-    monkeypatch.setenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-    monkeypatch.setenv("CHROME_BIN", "/usr/bin/chromium")
+    monkeypatch.setattr(config, "CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+    monkeypatch.setattr(config, "CHROME_BIN", "/usr/bin/chromium")
     monkeypatch.setattr(fetch, "_browser_instance", None)
     driver = Mock()
     service = Mock()
@@ -192,3 +234,14 @@ def test_browser_uses_preinstalled_chromedriver_without_download(monkeypatch):
     assert chrome_factory.call_args.kwargs["service"] is service
     assert chrome_factory.call_args.kwargs["options"].binary_location == "/usr/bin/chromium"
     driver_manager.assert_not_called()
+
+
+def test_error_page_is_not_browsed_or_stored_as_source(fetcher, monkeypatch):
+    monkeypatch.setattr(config, "BROWSER_FALLBACK_ENABLED", True)
+    fetcher.fetch.return_value = (404, "text/html", "<body>Not Found</body>")
+    browser = Mock()
+    monkeypatch.setattr(fetch, "_get_browser", browser)
+    result = fetch.browse_tool.invoke({"url": "https://example.com/missing"})
+    assert "HTTP 404" in result
+    assert get_run_state().evidence_store.items == []
+    browser.assert_not_called()

@@ -1,23 +1,20 @@
-import os
-
-from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv()
+import config
 
 client = OpenAI(
-    api_key=os.getenv("MODELHUB_API_KEY"),
-    base_url=os.getenv("MODELHUB_BASE_URL"),
-    default_headers={"User-Agent": "curl/8.0"},
+    api_key=config.MODELHUB_API_KEY,
+    base_url=config.MODELHUB_BASE_URL,
+    default_headers={"User-Agent": config.MODELHUB_USER_AGENT},
 )
 
 response = client.chat.completions.create(
-    model=os.getenv("MODELHUB_MODEL_NAME"),  # type: ignore[arg-type]
+    model=config.MODELHUB_MODEL_NAME,  # type: ignore[arg-type]
     messages=[
         {"role": "system", "content": "Anda adalah asisten yang membantu user."},
         {"role": "user", "content": "Bagaimana cara memanggil 911?"},
     ],
-    temperature=0.7,
+    temperature=config.LLM_TEMPERATURE,
 )
 
 print(response.choices[0].message.content)

@@ -8,6 +8,7 @@ import hashlib
 
 from pydantic import BaseModel
 
+import config
 from tools.extract import ExtractedPage
 
 
@@ -21,7 +22,6 @@ class EvidenceItem(BaseModel):
     snippet: str = ""
     canonical_url: str = ""
     fetched_at: str = ""
-    content_hash: str = ""
 
 
 class EvidenceStore:
@@ -39,12 +39,11 @@ class EvidenceStore:
     @staticmethod
     def _compute_hash(extracted: ExtractedPage) -> str:
         """
-        Menghitung content hash dari canonical_url + snippet main_text (500 karakter pertama).
+        Menghitung content hash dari snippet main_text
+        (EVIDENCE_HASH_CHARS karakter pertama), tanpa URL.
         """
-        canonical = extracted.canonical_url or extracted.url
-        snippet = extracted.main_text[:500] if extracted.main_text else ""
-        raw = f"{canonical}||{snippet}"
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        snippet = extracted.main_text[: config.EVIDENCE_HASH_CHARS] if extracted.main_text else ""
+        return hashlib.sha256(snippet.encode("utf-8")).hexdigest()
 
     def dedup_by_hash(self, extracted: ExtractedPage) -> bool:
         """
@@ -68,6 +67,9 @@ class EvidenceStore:
         Returns:
             EvidenceItem yang baru ditambahkan, atau None jika duplikat.
         """
+        # Respons gagal/konten kosong tidak boleh menjadi bukti untuk jawaban.
+        if not 200 <= extracted.status_code < 300 or not extracted.main_text.strip():
+            return None
         if self.dedup_by_hash(extracted):
             return None
 
@@ -77,31 +79,14 @@ class EvidenceStore:
         item = EvidenceItem(
             url=extracted.url,
             title=extracted.title,
-            snippet=extracted.main_text[:300] if extracted.main_text else "",
+            snippet=(
+                extracted.main_text[: config.EVIDENCE_SNIPPET_CHARS] if extracted.main_text else ""
+            ),
             canonical_url=canonical,
             fetched_at=extracted.fetched_at,
-            content_hash=content_hash,
         )
 
         self.items.append(item)
         self._hashes.add(content_hash)
         self._canonical_urls.add(canonical)
         return item
-
-    def get_citations(self) -> list[str]:
-        """
-        Kembalikan daftar string citation dalam format:
-        [index]. [Judul](URL)
-        """
-        lines = []
-        for i, item in enumerate(self.items, start=1):
-            title = item.title or item.canonical_url
-            lines.append(f"{i}. [{title}]({item.canonical_url})")
-        return lines
-
-    def get_citations_text(self) -> str:
-        """Kembalikan citations sebagai satu string yang sudah diformat."""
-        if not self.items:
-            return ""
-        header = "\n---\nSumber:\n"
-        return header + "\n".join(self.get_citations())

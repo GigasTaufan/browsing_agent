@@ -56,7 +56,10 @@ def test_expire_set_only_on_first_request_in_window():
     asyncio.run(limiter.check("key-a"))
 
     assert len(client.expired) == 1
-    assert client.expired[0][1] == 120  # window 60s * 2
+    assert (
+        client.expired[0][1]
+        == config.RATE_LIMIT_WINDOW_SECONDS * config.RATE_LIMIT_BUCKET_TTL_FACTOR
+    )
 
 
 def test_redis_error_fails_closed():
@@ -74,7 +77,9 @@ def test_keys_are_hashed_not_stored_raw():
     asyncio.run(limiter.check("secret-api-key"))
 
     bucket = list(client.counts)[0]
-    assert bucket.startswith("ratelimit:")
+    prefix, digest, _window = bucket.split(":")
+    assert prefix == config.RATE_LIMIT_BUCKET_PREFIX
+    assert len(digest) == config.RATE_LIMIT_KEY_HASH_CHARS
     assert "secret-api-key" not in bucket
 
 

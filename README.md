@@ -115,8 +115,9 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 | Variabel | Default | Keterangan |
 |----------|---------|------------|
 | `MODELHUB_API_KEY` | — (wajib untuk provider utama) | Jika diisi, aplikasi memakai ModelHub sebagai LLM utama |
-| `MODELHUB_BASE_URL` | `https://api-modelhub.aiplayground.id/v1` | Endpoint OpenAI-compatible ModelHub |
-| `MODELHUB_MODEL_NAME` | `gpt-4o-mini` | Nama model ModelHub |
+| `MODELHUB_BASE_URL` | `https://modelhub.example/v1` | Endpoint OpenAI-compatible ModelHub (dummy di template) |
+| `MODELHUB_MODEL_NAME` | `your-model-name` | Nama model ModelHub (dummy di template) |
+| `MODELHUB_USER_AGENT` | `curl/8.0` | Header User-Agent untuk koneksi LLM, terpisah dari crawler |
 | `AZURE_OPENAI_ENDPOINT` | — (fallback Azure) | Endpoint Azure OpenAI |
 | `AZURE_OPENAI_API_KEY` | — (fallback Azure) | API Key Azure OpenAI |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o-mini` | Nama deployment model Azure |
@@ -128,12 +129,18 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 | `MLFLOW_TRACING_ENABLED` | `true` | Aktifkan tracing LangChain dan span root request |
 | `MLFLOW_TRACKING_URI` | `http://localhost:5000` | URI MLflow untuk proses di host, lihat `.env.example` |
 | `MLFLOW_EXPERIMENT_ID` | `1` | ID experiment yang sudah ada; aplikasi tidak membuat experiment baru |
-| `MLFLOW_CONTAINER_TRACKING_URI` | `http://host.docker.internal:5000` (Compose) | API container menuju host via host-gateway; allowlist server harus mengizinkan `host.docker.internal:5000` |
+| `MLFLOW_CONTAINER_TRACKING_URI` | `http://host.docker.internal:5000` | API container menuju host via host-gateway (wajib di `.env` untuk Compose); allowlist server harus mengizinkan `host.docker.internal:5000` |
 | `MLFLOW_HTTP_TIMEOUT` | `5` | Timeout REST call MLflow (detik) |
 | `MLFLOW_PREFLIGHT_TIMEOUT` | `2.0` | Timeout pre-flight TCP check MLflow saat startup (detik) |
-| `SEARCH_PROVIDER` | `duckduckgo` | Provider pencarian: `duckduckgo` \| `searxng` |
-| `SEARXNG_BASE_URL` | `http://searxng:8080` (di Compose) | Base URL SearXNG JSON API |
+| `SEARCH_PROVIDER` | `searxng` | Provider pencarian: `duckduckgo` \| `searxng` |
+| `SEARXNG_BASE_URL` | `http://searxng:8080` | Base URL SearXNG JSON API (wajib di `.env`) |
 | `SEARCH_FALLBACK_ENABLED` | `true` | Fallback ke provider lain jika provider utama gagal |
+| `SEARXNG_SAFESEARCH` | `1` | Filter konten SearXNG: `0` off, `1` moderate, `2` strict |
+| `SEARCH_TRUSTED_DOMAINS` | `.edu,.gov,...` | Domain kredibel untuk skor ranking (dicocokkan sebagai substring) |
+| `SEARCH_TRUSTED_SCORE` / `SEARCH_DEFAULT_SCORE` | `10` / `1` | Skor ranking untuk domain kredibel dan domain biasa |
+| `SEARCH_LOG_TOP_RESULTS` | `3` | Jumlah link teratas yang dicetak ke log |
+| `DDG_RETRY_BACKENDS` | `lite,lite,auto` | Urutan backend DuckDuckGo; `lite` dipetakan ke `duckduckgo` |
+| `DDG_RETRY_DELAY_SECONDS` | `1.0` | Jeda dasar retry DDG; attempt ke-N menunggu `N * nilai` |
 | `MAX_TOOL_CALLS` | `5` | Batas pemanggilan tool per query |
 | `MAX_URLS_PER_QUERY` | `3` | Batas URL unik yang dicoba di-fetch per query; gagal tetap dihitung, URL yang sama tidak menambah kuota |
 | `MAX_SEARCH_RESULTS` | `5` | Maksimum hasil search yang ditampilkan |
@@ -142,17 +149,29 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 | `FETCH_MAX_RETRIES` | `3` | Retry fetch HTTP dengan exponential backoff |
 | `BROWSER_WAIT_TIMEOUT` | `10` | Timeout explicit wait Selenium (detik) |
 | `FETCH_MAX_CONTENT_CHARS` | `3000` | Maksimum karakter konten yang dikirim ke LLM per halaman |
+| `FETCH_BACKOFF_BASE_SECONDS` | `2.0` | Basis backoff eksponensial retry HTTP (`base ** attempt`) |
+| `BROWSER_JS_HEAVY_MIN_CHARS` | `500` | Ambang teks HTML untuk memicu fallback Selenium |
+| `FETCH_MAX_HEADINGS` | `5` | Jumlah heading yang disertakan dalam konteks LLM |
+| `CHROME_BIN` / `CHROMEDRIVER_PATH` | — (opsional) | Path browser/driver di container; kosong = unduh via webdriver-manager |
 | `USER_AGENT` | `BrowsingAgent/0.1` | User-Agent untuk pengambilan halaman web |
 | `RATE_LIMIT_PER_DOMAIN_SECONDS` | `1.0` | Delay antar request ke domain sama (detik) |
 | `ROBOTS_FAIL_OPEN` | `true` | `true`: izinkan jika robots.txt gagal di-fetch (non-404); `false`: tolak |
 | `ROBOTS_CACHE_TTL_SECONDS` | `3600` | TTL cache robots.txt per domain (detik) |
+| `GUARDRAIL_BLOCKED_DOMAINS` | `bca.co.id,...` | Domain sensitif yang ditolak (per label/subdomain) |
+| `GUARDRAIL_BLOCKED_PATH_SEGMENTS` | `login,signin,auth,admin` | Segmen path yang ditolak |
 | `CHUNK_SIZE` | `2000` | Ukuran chunk konten halaman |
-| `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` (di Compose) | URL Redis untuk rate limit per API key; kosong = nonaktif (dev/CLI); Redis down = 503 |
+| `EVIDENCE_HASH_CHARS` | `500` | Jumlah karakter main_text untuk hash dedup evidence |
+| `EVIDENCE_SNIPPET_CHARS` | `300` | Panjang snippet pada citation/evidence |
+| `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` | URL Redis untuk rate limit per API key (wajib di `.env` untuk Compose); kosong = nonaktif khusus dev/CLI; Redis down = 503 |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `10` | Maksimum request per API key per menit |
 | `RATE_LIMIT_REDIS_TIMEOUT` | `1.0` | Timeout socket Redis (detik) |
 | `RATE_LIMIT_WINDOW_SECONDS` | `60` | Ukuran window fixed-window rate limit (detik) |
+| `RATE_LIMIT_BUCKET_PREFIX` | `ratelimit` | Prefix key bucket Redis |
+| `RATE_LIMIT_KEY_HASH_CHARS` | `16` | Panjang hash identitas API key di Redis |
+| `RATE_LIMIT_BUCKET_TTL_FACTOR` | `2` | TTL bucket = `window * faktor` |
 | `MAX_CONCURRENT_AGENT_RUNS` | `4` | Maksimum agent yang berjalan konkuren; sisanya ditolak 429 |
 | `MAX_QUESTION_LENGTH` | `2000` | Panjang maksimum pertanyaan (karakter) |
+| `NGINX_PORT` | `8080` | Port host untuk Nginx (Compose); wajib di `.env` |
 
 Untuk menjalankan contoh penggunaan API ModelHub secara langsung:
 ```bash

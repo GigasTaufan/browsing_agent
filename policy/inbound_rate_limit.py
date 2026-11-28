@@ -33,7 +33,8 @@ class RedisRateLimiter:
     """
     Fixed-window rate limiter per key.
 
-    Bucket Redis: "ratelimit:{sha256(key)[:16]}:{window_index}".
+    Bucket Redis: "{prefix}:{sha256(key) dipotong}:{window_index}" sesuai
+    RATE_LIMIT_BUCKET_PREFIX dan RATE_LIMIT_KEY_HASH_CHARS.
     INCR + EXPIRE (hanya saat bucket baru) — cukup atomik untuk fixed window.
     """
 
@@ -49,14 +50,19 @@ class RedisRateLimiter:
         Kembalikan keputusan untuk request ini.
         Fail-closed: error Redis apa pun -> UNAVAILABLE (dengan log).
         """
-        digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[
+            : config.RATE_LIMIT_KEY_HASH_CHARS
+        ]
         window_index = int(time.time()) // self._window_seconds
-        bucket = f"ratelimit:{digest}:{window_index}"
+        bucket = f"{config.RATE_LIMIT_BUCKET_PREFIX}:{digest}:{window_index}"
 
         try:
             count = await self._client.incr(bucket)
             if count == 1:
-                await self._client.expire(bucket, self._window_seconds * 2)
+                await self._client.expire(
+                    bucket,
+                    self._window_seconds * config.RATE_LIMIT_BUCKET_TTL_FACTOR,
+                )
         except Exception as e:
             oplog.log_event("rate_limit.redis_error", error=str(e), fail_closed=True)
             return RateLimitDecision.UNAVAILABLE

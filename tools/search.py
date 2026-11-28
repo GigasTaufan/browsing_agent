@@ -23,30 +23,16 @@ class SearchResult(BaseModel):
     snippet: str
 
 
-_KNOWN_QUALITY_DOMAINS = {
-    ".edu",
-    ".gov",
-    ".ac.id",
-    ".go.id",
-    ".or.id",
-    ".wikipedia.org",
-    ".britannica.com",
-    ".stackoverflow.com",
-}
-
-
 def _score_url(url: str) -> int:
     """
     Skor kualitas URL (higher = lebih baik).
-    Prefer domain kredibel seperti .edu, .gov, Wikipedia.
+    Prefer domain kredibel sesuai SEARCH_TRUSTED_DOMAINS.
     """
     domain = url.lower()
-    for d in _KNOWN_QUALITY_DOMAINS:
-        if d in domain:
-            return 10
-    if "wikipedia" in domain:
-        return 9
-    return 1
+    for trusted in config.SEARCH_TRUSTED_DOMAINS:
+        if trusted in domain:
+            return config.SEARCH_TRUSTED_SCORE
+    return config.SEARCH_DEFAULT_SCORE
 
 
 def _rank_and_dedup(results: list[SearchResult], max_results: int) -> list[SearchResult]:
@@ -69,7 +55,7 @@ def _format_results(results: list[SearchResult]) -> str:
 
     if ranked:
         print(f"[Search Tool]: Ditemukan {len(ranked)} sumber relevan (setelah ranking):")
-        for i, result in enumerate(ranked[:3], 1):
+        for i, result in enumerate(ranked[: config.SEARCH_LOG_TOP_RESULTS], 1):
             print(f"   {i}. {result.url}")
 
     return ", ".join(
@@ -78,8 +64,8 @@ def _format_results(results: list[SearchResult]) -> str:
 
 
 def _search_ddgs(query: str) -> list[SearchResult]:
-    """Pencarian via DuckDuckGo (ddgs). Retry ladder: lite -> lite -> auto."""
-    backends = ["lite", "lite", "auto"]
+    """Pencarian via DuckDuckGo (ddgs). Retry ladder dari DDG_RETRY_BACKENDS."""
+    backends = config.DDG_RETRY_BACKENDS
     last_error: Exception | None = None
 
     for attempt, backend in enumerate(backends, start=1):
@@ -103,12 +89,15 @@ def _search_ddgs(query: str) -> list[SearchResult]:
 
         except Exception as e:
             last_error = e
-            print(f"[Search Tool]: Gagal dengan backend '{backend}' (attempt {attempt}/3): {e}")
+            print(
+                f"[Search Tool]: Gagal dengan backend '{backend}' "
+                f"(attempt {attempt}/{len(backends)}): {e}"
+            )
             if attempt < len(backends):
-                time.sleep(attempt)  # 1s, 2s
+                time.sleep(attempt * config.DDG_RETRY_DELAY_SECONDS)
             continue
 
-    raise RuntimeError(f"DuckDuckGo gagal setelah 3 attempts. Error: {last_error}")
+    raise RuntimeError(f"DuckDuckGo gagal setelah {len(backends)} attempts. Error: {last_error}")
 
 
 def _search_searxng(query: str) -> list[SearchResult]:
@@ -120,7 +109,7 @@ def _search_searxng(query: str) -> list[SearchResult]:
     with httpx.Client(timeout=config.REQUEST_TIMEOUT) as client:
         response = client.get(
             url,
-            params={"q": query, "format": "json", "safesearch": 1},
+            params={"q": query, "format": "json", "safesearch": config.SEARXNG_SAFESEARCH},
         )
         response.raise_for_status()
         payload = response.json()

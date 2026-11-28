@@ -1,5 +1,7 @@
 """Unit test guardrails: scope PRD (automation), domain per-label, dan blokir SSRF."""
 
+import socket
+
 import pytest
 
 from policy.guardrails import is_query_blocked, is_url_blocked
@@ -67,6 +69,15 @@ def test_login_path_blocked():
     assert blocked is True
 
 
+def test_blocked_domains_come_from_config(monkeypatch):
+    monkeypatch.setattr("policy.guardrails.config.GUARDRAIL_BLOCKED_DOMAINS", ("blocked.example",))
+    monkeypatch.setattr("policy.guardrails._resolves_to_private", lambda host, port: False)
+
+    blocked, _ = is_url_blocked("https://sub.blocked.example/x")
+
+    assert blocked is True
+
+
 @pytest.mark.parametrize(
     "url",
     [
@@ -111,6 +122,34 @@ def test_unresolvable_hostname_blocked(monkeypatch):
     monkeypatch.setattr("policy.guardrails.socket.getaddrinfo", _raise)
 
     blocked, _ = is_url_blocked("https://tidak-ada.example.invalid/")
+
+    assert blocked is True
+
+
+def test_ipv6_lookup_failure_does_not_block_public_ipv4(monkeypatch):
+    """Host A-only (tanpa AAAA) tetap boleh; kegagalan satu family bukan alasan blokir."""
+
+    def getaddrinfo(host, port, family, *args, **kwargs):
+        if family == socket.AF_INET:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+        raise OSError("no ipv6 record")
+
+    monkeypatch.setattr("policy.guardrails.socket.getaddrinfo", getaddrinfo)
+
+    blocked, _ = is_url_blocked("https://example.com/article")
+
+    assert blocked is False
+
+
+def test_private_ipv6_still_blocks_with_public_ipv4(monkeypatch):
+    def getaddrinfo(host, port, family, *args, **kwargs):
+        if family == socket.AF_INET:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("fd00::1", port, 0, 0))]
+
+    monkeypatch.setattr("policy.guardrails.socket.getaddrinfo", getaddrinfo)
+
+    blocked, _ = is_url_blocked("https://example.com/article")
 
     assert blocked is True
 

@@ -18,6 +18,12 @@ SAFE_ENV = {
     "MODELHUB_BASE_URL": "https://modelhub.invalid/v1",
     "MODELHUB_MODEL_NAME": "test-model",
     "MLFLOW_TRACING_ENABLED": "false",
+    "MLFLOW_CONTAINER_TRACKING_URI": "http://host.docker.internal:5000",
+    "MLFLOW_EXPERIMENT_ID": "1",
+    "RATE_LIMIT_REDIS_URL": "redis://redis:6379/0",
+    "SEARXNG_BASE_URL": "http://searxng:8080",
+    "SEARCH_PROVIDER": "searxng",
+    "NGINX_PORT": "8080",
     "SEARXNG_SECRET": "test-searxng-secret",
     "SEARXNG_CONTACT_URL": "mailto:admin@example.invalid",
 }
@@ -69,11 +75,13 @@ def test_plain_compose_starts_core_stack_without_profile():
     assert sorted(rendered["services"]) == ["api", "nginx", "redis", "searxng"]
 
 
-def test_api_defaults_to_searxng_provider():
-    """Compose menggunakan SearXNG sebagai provider saat tidak di-override."""
-    rendered = compose_config("config", "--format", "json", extra_env={"SEARCH_PROVIDER": ""})
+def test_api_search_provider_comes_from_env():
+    """Compose tidak menyimpan default provider; nilainya dari .env."""
+    rendered = compose_config(
+        "config", "--format", "json", extra_env={"SEARCH_PROVIDER": "duckduckgo"}
+    )
 
-    assert rendered["services"]["api"]["environment"]["SEARCH_PROVIDER"] == "searxng"
+    assert rendered["services"]["api"]["environment"]["SEARCH_PROVIDER"] == "duckduckgo"
 
 
 def test_staging_can_use_separate_host_port():

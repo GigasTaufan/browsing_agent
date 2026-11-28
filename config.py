@@ -50,6 +50,17 @@ def _env_bool(name: str) -> bool:
     raise ValueError(f"Variabel lingkungan {name} harus 'true' atau 'false', ditemukan: {raw!r}.")
 
 
+def _env_csv(name: str) -> tuple[str, ...]:
+    """Baca variabel lingkungan daftar dipisah koma yang wajib terisi."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        raise ValueError(f"Variabel lingkungan {name} wajib diisi di .env.")
+    values = tuple(value.strip() for value in raw.split(",") if value.strip())
+    if not values:
+        raise ValueError(f"Variabel lingkungan {name} wajib berisi minimal satu nilai.")
+    return values
+
+
 def _require(names: list[str]) -> None:
     """Pastikan semua variabel wajib terisi; kumpulkan yang hilang dalam satu pesan."""
     missing = [name for name in names if not os.getenv(name, "").strip()]
@@ -113,6 +124,24 @@ _require(
         "RATE_LIMIT_WINDOW_SECONDS",
         "MAX_CONCURRENT_AGENT_RUNS",
         "MAX_QUESTION_LENGTH",
+        "MODELHUB_USER_AGENT",
+        "SEARCH_TRUSTED_DOMAINS",
+        "SEARCH_TRUSTED_SCORE",
+        "SEARCH_DEFAULT_SCORE",
+        "SEARCH_LOG_TOP_RESULTS",
+        "DDG_RETRY_BACKENDS",
+        "DDG_RETRY_DELAY_SECONDS",
+        "SEARXNG_SAFESEARCH",
+        "FETCH_BACKOFF_BASE_SECONDS",
+        "BROWSER_JS_HEAVY_MIN_CHARS",
+        "FETCH_MAX_HEADINGS",
+        "EVIDENCE_HASH_CHARS",
+        "EVIDENCE_SNIPPET_CHARS",
+        "RATE_LIMIT_KEY_HASH_CHARS",
+        "RATE_LIMIT_BUCKET_PREFIX",
+        "RATE_LIMIT_BUCKET_TTL_FACTOR",
+        "GUARDRAIL_BLOCKED_DOMAINS",
+        "GUARDRAIL_BLOCKED_PATH_SEGMENTS",
     ]
 )
 
@@ -170,6 +199,8 @@ LLM_TEMPERATURE = _env_float("LLM_TEMPERATURE")
 LLM_MAX_TOKENS = _env_int("LLM_MAX_TOKENS")
 LLM_TIMEOUT = _env_int("LLM_TIMEOUT")
 LLM_MAX_RETRIES = _env_int("LLM_MAX_RETRIES")
+# Header HTTP untuk koneksi ke ModelHub (bukan USER_AGENT crawler).
+MODELHUB_USER_AGENT = os.getenv("MODELHUB_USER_AGENT", "").strip()
 
 # --- Tool Limits ---
 MAX_TOOL_CALLS = _env_int("MAX_TOOL_CALLS")
@@ -186,6 +217,15 @@ BROWSER_FALLBACK_ENABLED = _env_bool("BROWSER_FALLBACK_ENABLED")
 FETCH_MAX_RETRIES = _env_int("FETCH_MAX_RETRIES")
 BROWSER_WAIT_TIMEOUT = _env_int("BROWSER_WAIT_TIMEOUT")
 FETCH_MAX_CONTENT_CHARS = _env_int("FETCH_MAX_CONTENT_CHARS")
+# Backoff eksponensial: base ** attempt (detik).
+FETCH_BACKOFF_BASE_SECONDS = _env_float("FETCH_BACKOFF_BASE_SECONDS")
+# Halaman HTML dengan teks lebih pendek dari ini dianggap JS-heavy.
+BROWSER_JS_HEAVY_MIN_CHARS = _env_int("BROWSER_JS_HEAVY_MIN_CHARS")
+# Jumlah heading yang disertakan dalam konteks LLM.
+FETCH_MAX_HEADINGS = _env_int("FETCH_MAX_HEADINGS")
+# Path browser di image/container; kosong = unduh lewat webdriver-manager.
+CHROME_BIN = os.getenv("CHROME_BIN") or None
+CHROMEDRIVER_PATH = os.getenv("CHROMEDRIVER_PATH") or None
 
 # --- Safe Crawling ---
 USER_AGENT = os.getenv("USER_AGENT", "").strip()
@@ -194,7 +234,27 @@ RATE_LIMIT_PER_DOMAIN_SECONDS = _env_float("RATE_LIMIT_PER_DOMAIN_SECONDS")
 ROBOTS_FAIL_OPEN = _env_bool("ROBOTS_FAIL_OPEN")
 ROBOTS_CACHE_TTL_SECONDS = _env_int("ROBOTS_CACHE_TTL_SECONDS")
 
+# --- Guardrails ---
+# Domain sensitif dicocokkan per label; path login/auth ditolak.
+GUARDRAIL_BLOCKED_DOMAINS = _env_csv("GUARDRAIL_BLOCKED_DOMAINS")
+GUARDRAIL_BLOCKED_PATH_SEGMENTS = _env_csv("GUARDRAIL_BLOCKED_PATH_SEGMENTS")
+
 SEARCH_FALLBACK_ENABLED = _env_bool("SEARCH_FALLBACK_ENABLED")
+
+# --- Search Tuning ---
+# Domain yang dianggap kredibel (cocokkan substring) dan skor ranking-nya.
+SEARCH_TRUSTED_DOMAINS = _env_csv("SEARCH_TRUSTED_DOMAINS")
+SEARCH_TRUSTED_SCORE = _env_int("SEARCH_TRUSTED_SCORE")
+SEARCH_DEFAULT_SCORE = _env_int("SEARCH_DEFAULT_SCORE")
+# Jumlah link teratas yang dicetak ke log pencarian.
+SEARCH_LOG_TOP_RESULTS = _env_int("SEARCH_LOG_TOP_RESULTS")
+# Urutan backend DuckDuckGo: "lite" dipetakan ke backend ddgs "duckduckgo".
+DDG_RETRY_BACKENDS = _env_csv("DDG_RETRY_BACKENDS")
+DDG_RETRY_DELAY_SECONDS = _env_float("DDG_RETRY_DELAY_SECONDS")
+# Filter konten SearXNG: 0=off, 1=moderate, 2=strict.
+SEARXNG_SAFESEARCH = _env_int("SEARXNG_SAFESEARCH")
+if SEARXNG_SAFESEARCH not in (0, 1, 2):
+    raise ValueError("SEARXNG_SAFESEARCH harus 0, 1, atau 2.")
 
 # --- MLflow GenAI Tracing ---
 MLFLOW_TRACING_ENABLED = _env_bool("MLFLOW_TRACING_ENABLED")
@@ -214,10 +274,21 @@ if MLFLOW_TRACING_ENABLED:
 
 # --- Content Extraction ---
 CHUNK_SIZE = _env_int("CHUNK_SIZE")
+# Jumlah karakter main_text untuk hash dedup dan snippet citation.
+EVIDENCE_HASH_CHARS = _env_int("EVIDENCE_HASH_CHARS")
+EVIDENCE_SNIPPET_CHARS = _env_int("EVIDENCE_SNIPPET_CHARS")
 
 # --- API Inbound Limits ---
 RATE_LIMIT_REQUESTS_PER_MINUTE = _env_int("RATE_LIMIT_REQUESTS_PER_MINUTE")
 RATE_LIMIT_REDIS_TIMEOUT = _env_float("RATE_LIMIT_REDIS_TIMEOUT")
 RATE_LIMIT_WINDOW_SECONDS = _env_int("RATE_LIMIT_WINDOW_SECONDS")
+# Prefix bucket Redis, panjang hash identitas key, dan kelipatan TTL window.
+RATE_LIMIT_BUCKET_PREFIX = os.getenv("RATE_LIMIT_BUCKET_PREFIX", "").strip()
+RATE_LIMIT_KEY_HASH_CHARS = _env_int("RATE_LIMIT_KEY_HASH_CHARS")
+RATE_LIMIT_BUCKET_TTL_FACTOR = _env_int("RATE_LIMIT_BUCKET_TTL_FACTOR")
+if not 1 <= RATE_LIMIT_KEY_HASH_CHARS <= 64:
+    raise ValueError("RATE_LIMIT_KEY_HASH_CHARS harus antara 1 dan 64.")
+if RATE_LIMIT_BUCKET_TTL_FACTOR < 1:
+    raise ValueError("RATE_LIMIT_BUCKET_TTL_FACTOR harus >= 1.")
 MAX_CONCURRENT_AGENT_RUNS = _env_int("MAX_CONCURRENT_AGENT_RUNS")
 MAX_QUESTION_LENGTH = _env_int("MAX_QUESTION_LENGTH")

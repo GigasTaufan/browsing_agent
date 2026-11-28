@@ -11,6 +11,8 @@ import re
 import socket
 from urllib.parse import urlparse
 
+import config
+
 # Pola upaya bypass / otomasi ilegal (word boundary, case-insensitive).
 _BLOCKED_PATTERNS = re.compile(
     r"\b(?:"
@@ -19,16 +21,6 @@ _BLOCKED_PATTERNS = re.compile(
     r")\b",
     re.IGNORECASE,
 )
-
-# Domain sensitif: dicocokkan per label (domain persis atau subdomain-nya).
-_BLOCKED_DOMAINS = (
-    "bca.co.id",
-    "bni.co.id",
-    "mandiri.co.id",
-    "bri.co.id",
-)
-
-_BLOCKED_PATH_SEGMENTS = ("login", "signin", "auth", "admin")
 
 
 def is_query_blocked(query: str) -> tuple[bool, str]:
@@ -57,15 +49,20 @@ def _is_private_ip(value: str | int) -> bool:
 
 
 def _resolves_to_private(hostname: str, port: int) -> bool:
-    """True jika hostname (bentuk desimal/hex/IPv6-embedded sekalipun) menuju alamat privat."""
-    try:
-        # Satu query per family agar setiap alamat (v4/v6) diperiksa.
-        answers = socket.getaddrinfo(
-            hostname, port, family=socket.AF_INET, proto=socket.IPPROTO_TCP
-        ) + socket.getaddrinfo(hostname, port, family=socket.AF_INET6, proto=socket.IPPROTO_TCP)
-    except OSError:
-        return True  # Tidak bisa diverifikasi -> fail-closed
-    return not answers or any(_is_private_ip(sockaddr[0]) for *_, sockaddr in answers)
+    """True jika hostname menuju alamat privat; family tanpa record tidak menggagalkan pengecekan."""
+    answers: list[tuple] = []
+    for family in (socket.AF_INET, socket.AF_INET6):
+        try:
+            answers.extend(
+                socket.getaddrinfo(hostname, port, family=family, proto=socket.IPPROTO_TCP)
+            )
+        except OSError:
+            # Host A-only/AAAA-only: family ini tidak punya record, bukan alasan blokir.
+            continue
+
+    if not answers:
+        return True  # Tidak ada alamat yang bisa diverifikasi -> fail-closed
+    return any(_is_private_ip(sockaddr[0]) for *_, sockaddr in answers)
 
 
 def is_url_blocked(url: str) -> tuple[bool, str]:
@@ -86,7 +83,7 @@ def is_url_blocked(url: str) -> tuple[bool, str]:
     if not hostname:
         return True, "[Guardrail]: URL tidak memiliki hostname."
 
-    for blocked in _BLOCKED_DOMAINS:
+    for blocked in config.GUARDRAIL_BLOCKED_DOMAINS:
         if hostname == blocked or hostname.endswith("." + blocked):
             return True, (
                 f"[Guardrail]: Domain '{domain}' termasuk dalam daftar yang tidak diizinkan."
@@ -94,7 +91,7 @@ def is_url_blocked(url: str) -> tuple[bool, str]:
 
     # Tolak URL yang mengandung path login
     path_lower = parsed.path.lower()
-    if any(f"/{kw}" in path_lower for kw in _BLOCKED_PATH_SEGMENTS):
+    if any(f"/{kw}" in path_lower for kw in config.GUARDRAIL_BLOCKED_PATH_SEGMENTS):
         return True, "[Guardrail]: URL mengandung halaman login/autentikasi — tidak diizinkan."
 
     try:

@@ -33,6 +33,24 @@ _REQUIRED_VARS = [
     "RATE_LIMIT_WINDOW_SECONDS",
     "MAX_CONCURRENT_AGENT_RUNS",
     "MAX_QUESTION_LENGTH",
+    "MODELHUB_USER_AGENT",
+    "SEARCH_TRUSTED_DOMAINS",
+    "SEARCH_TRUSTED_SCORE",
+    "SEARCH_DEFAULT_SCORE",
+    "SEARCH_LOG_TOP_RESULTS",
+    "DDG_RETRY_BACKENDS",
+    "DDG_RETRY_DELAY_SECONDS",
+    "SEARXNG_SAFESEARCH",
+    "FETCH_BACKOFF_BASE_SECONDS",
+    "BROWSER_JS_HEAVY_MIN_CHARS",
+    "FETCH_MAX_HEADINGS",
+    "EVIDENCE_HASH_CHARS",
+    "EVIDENCE_SNIPPET_CHARS",
+    "RATE_LIMIT_KEY_HASH_CHARS",
+    "RATE_LIMIT_BUCKET_PREFIX",
+    "RATE_LIMIT_BUCKET_TTL_FACTOR",
+    "GUARDRAIL_BLOCKED_DOMAINS",
+    "GUARDRAIL_BLOCKED_PATH_SEGMENTS",
     "API_ALLOWED_KEYS",
     "UI_API_KEY",
 ]
@@ -247,3 +265,43 @@ def test_unknown_search_provider_fails_fast(monkeypatch):
 
     with pytest.raises(ValueError, match="SEARCH_PROVIDER"):
         importlib.reload(config)
+
+
+def test_tuning_values_are_parsed_from_env(monkeypatch):
+    monkeypatch.setenv("SEARCH_TRUSTED_DOMAINS", ".edu, .gov")
+    monkeypatch.setenv("DDG_RETRY_BACKENDS", "lite,auto")
+    monkeypatch.setenv("GUARDRAIL_BLOCKED_DOMAINS", "satu.example,dua.example")
+    monkeypatch.setenv("SEARXNG_SAFESEARCH", "2")
+    monkeypatch.setenv("SEARCH_TRUSTED_SCORE", "42")
+
+    reloaded = importlib.reload(config)
+
+    assert reloaded.SEARCH_TRUSTED_DOMAINS == (".edu", ".gov")
+    assert reloaded.DDG_RETRY_BACKENDS == ("lite", "auto")
+    assert reloaded.GUARDRAIL_BLOCKED_DOMAINS == ("satu.example", "dua.example")
+    assert reloaded.SEARXNG_SAFESEARCH == 2
+    assert reloaded.SEARCH_TRUSTED_SCORE == 42
+
+
+def test_invalid_searxng_safesearch_fails_fast(monkeypatch):
+    monkeypatch.setenv("SEARXNG_SAFESEARCH", "3")
+
+    with pytest.raises(ValueError, match="SEARXNG_SAFESEARCH"):
+        importlib.reload(config)
+
+
+def test_empty_blocked_domains_fails_fast(monkeypatch):
+    monkeypatch.setenv("GUARDRAIL_BLOCKED_DOMAINS", " , ")
+
+    with pytest.raises(ValueError, match="GUARDRAIL_BLOCKED_DOMAINS"):
+        importlib.reload(config)
+
+
+def test_optional_browser_paths_are_read_from_env(monkeypatch):
+    monkeypatch.setenv("CHROME_BIN", "/opt/chromium")
+    monkeypatch.setenv("CHROMEDRIVER_PATH", "/opt/chromedriver")
+
+    reloaded = importlib.reload(config)
+
+    assert reloaded.CHROME_BIN == "/opt/chromium"
+    assert reloaded.CHROMEDRIVER_PATH == "/opt/chromedriver"

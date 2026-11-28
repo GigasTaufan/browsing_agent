@@ -122,10 +122,12 @@ def _parse_args() -> argparse.Namespace:
 
 
 # 1) Inisialisasi LLM
-def _mlflow_reachable(uri: str, timeout: float = 2.0) -> bool:
+def _mlflow_reachable(uri: str, timeout: float) -> bool:
     """Pre-flight TCP check dengan hard timeout agar tracing tidak menggantung startup."""
     parsed = urlparse(uri)
-    host = parsed.hostname or "127.0.0.1"
+    host = parsed.hostname
+    if host is None:
+        return False
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -148,7 +150,10 @@ def setup_tracing(verbose: bool = False):
 
     # config menjamin URI & timeout terisi saat tracing aktif; guard defensif untuk mypy.
     tracking_uri = config.MLFLOW_TRACKING_URI or ""
-    preflight_timeout = config.MLFLOW_PREFLIGHT_TIMEOUT or 2.0
+    preflight_timeout = config.MLFLOW_PREFLIGHT_TIMEOUT
+    http_timeout = config.MLFLOW_HTTP_TIMEOUT
+    if preflight_timeout is None or http_timeout is None:
+        return None
 
     # Guard: server tidak terjangkau -> skip cepat, jangan sampai startup menggantung.
     if not _mlflow_reachable(tracking_uri, preflight_timeout):
@@ -159,7 +164,7 @@ def setup_tracing(verbose: bool = False):
         import mlflow
 
         # Hard timeout untuk semua REST call MLflow (default: tanpa timeout).
-        os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", str(config.MLFLOW_HTTP_TIMEOUT or 5))
+        os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", str(http_timeout))
         mlflow.set_tracking_uri(tracking_uri)
         mlflow.set_experiment(experiment_id=config.MLFLOW_EXPERIMENT_ID)
         # Autolog LangChain: trace otomatis untuk LLM, tools, dan agent graph.
@@ -190,7 +195,7 @@ def load_llm(
             api_key=config.MODELHUB_API_KEY,
             base_url=config.MODELHUB_BASE_URL,
             model=config.MODELHUB_MODEL_NAME,
-            default_headers={"User-Agent": "curl/8.0"},
+            default_headers={"User-Agent": config.MODELHUB_USER_AGENT},
             temperature=temperature,
             max_tokens=config.LLM_MAX_TOKENS,
             timeout=config.LLM_TIMEOUT,

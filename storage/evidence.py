@@ -8,6 +8,7 @@ import hashlib
 
 from pydantic import BaseModel
 
+import config
 from tools.extract import ExtractedPage
 
 
@@ -39,10 +40,11 @@ class EvidenceStore:
     @staticmethod
     def _compute_hash(extracted: ExtractedPage) -> str:
         """
-        Menghitung content hash dari canonical_url + snippet main_text (500 karakter pertama).
+        Menghitung content hash dari canonical_url + snippet main_text
+        (EVIDENCE_HASH_CHARS karakter pertama).
         """
         canonical = extracted.canonical_url or extracted.url
-        snippet = extracted.main_text[:500] if extracted.main_text else ""
+        snippet = extracted.main_text[: config.EVIDENCE_HASH_CHARS] if extracted.main_text else ""
         raw = f"{canonical}||{snippet}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -80,7 +82,9 @@ class EvidenceStore:
         item = EvidenceItem(
             url=extracted.url,
             title=extracted.title,
-            snippet=extracted.main_text[:300] if extracted.main_text else "",
+            snippet=(
+                extracted.main_text[: config.EVIDENCE_SNIPPET_CHARS] if extracted.main_text else ""
+            ),
             canonical_url=canonical,
             fetched_at=extracted.fetched_at,
             content_hash=content_hash,

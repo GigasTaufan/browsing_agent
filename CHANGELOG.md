@@ -36,6 +36,7 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **BREAKING**: seluruh parameter tuning operasional kini wajib di `.env` dan tidak lagi hardcoded di kode: header ModelHub, skor/domain ranking pencarian, retry DDG, `safesearch`, backoff/ambang JS fetch, batas heading, panjang hash/snippet evidence, prefix/hash/TTL bucket Redis, serta daftar domain/segmen path guardrails. `compose.yaml` juga tidak lagi menyediakan fallback; URL service, experiment ID, provider, dan `NGINX_PORT` wajib diisi di `.env` (lihat `.env.example`).
 - **BREAKING**: rate limit inbound kini fail-closed (ADR-0006) — Redis tidak terjangkau membuat `POST /api/v1/ask` membalas HTTP 503 `dependency_unavailable`; limiter mengembalikan `RateLimitDecision`, bukan `bool`.
 - **BREAKING (perilaku)**: guardrails mengikuti PRD (ADR-0007) — pertanyaan umum yang memuat "password"/"login" tidak lagi diblokir; domain sensitif dicocokkan per label dan entri duplikat/`bank` dihapus.
 - `SEARCH_PROVIDER` kini divalidasi di `config.py` (fail-fast saat startup, bukan saat tool dipanggil).
@@ -55,6 +56,11 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 - Pemeriksaan kelengkapan ModelHub/Azure di `main.load_llm` (dipindah ke `config.py`).
 - `searxng/settings.yml`: `secret_key` dari environment `SEARXNG_SECRET` (Compose mewajibkannya), tidak lagi nilai dev ter-commit.
 - Dead code: `EvidenceStore.get_citations`/`get_citations_text`, `load_dotenv()` ganda di `main.main`, cabang `isinstance(args.question, list)` yang tidak mungkin, ekstraksi canonical duplikat di `tools/extract.py`.
+
+### Fixed
+
+- UI merender jawaban Markdown menjadi elemen DOM aman (bold, italic, heading, list, code, blockquote, link http/https) tanpa `innerHTML`; marker `**`/`*` tidak lagi tampil literal.
+- Guardrail SSRF memblokir semua host publik IPv4-only di container karena lookup AAAA `EAI_NODATA` dianggap kegagalan total. Kegagalan satu family DNS kini diabaikan; host tetap diblokir bila tidak ada alamat sama sekali atau salah satu alamat hasil resolve privat.
 
 ## [1.2.0] - 2026-11-25
 

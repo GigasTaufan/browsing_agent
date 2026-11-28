@@ -206,6 +206,7 @@ def load_cases(path: Path) -> list[EvalCase]:
 def to_research_evidence(case: EvalCase) -> list[ResearchEvidence]:
     """Konversi runtime tanpa mengganti teks penuh dengan snippet."""
     from agent.research import ResearchEvidence
+    from config import EVIDENCE_SNIPPET_CHARS
     from storage.evidence import EvidenceItem
 
     return [
@@ -215,7 +216,7 @@ def to_research_evidence(case: EvalCase) -> list[ResearchEvidence]:
                 title=s.title,
                 canonical_url=s.url,
                 fetched_at=s.fetched_at,
-                snippet=s.text[:300],
+                snippet=s.text[:EVIDENCE_SNIPPET_CHARS],
             ),
             s.text,
         )

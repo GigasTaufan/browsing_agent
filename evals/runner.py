@@ -66,7 +66,7 @@ def build_clients(settings, budget) -> Clients:
         connection = dict(
             api_key=config.MODELHUB_API_KEY,
             api_base=config.MODELHUB_BASE_URL,
-            extra_headers={"User-Agent": "curl/8.0"},
+            extra_headers={"User-Agent": config.MODELHUB_USER_AGENT},
         )
         metadata = dict(provider="modelhub", model=config.MODELHUB_MODEL_NAME)
     else:

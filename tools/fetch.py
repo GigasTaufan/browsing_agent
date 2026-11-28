@@ -5,7 +5,6 @@ Browser session di-reuse (tidak launch per URL).
 Mematuhi robots.txt, rate limit, dan guardrails.
 """
 
-import os
 import threading
 import time
 
@@ -43,7 +42,7 @@ def _get_browser() -> webdriver.Chrome:
     if _browser_instance is None:
         print("[Browser Fetcher]: Meluncurkan Chrome (headless)...")
         chrome_options = Options()
-        chrome_binary = os.environ.get("CHROME_BIN")
+        chrome_binary = config.CHROME_BIN
         if chrome_binary:
             chrome_options.binary_location = chrome_binary
         chrome_options.add_argument("--headless=new")
@@ -51,7 +50,7 @@ def _get_browser() -> webdriver.Chrome:
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument(f"--user-agent={config.USER_AGENT}")
 
-        chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+        chromedriver_path = config.CHROMEDRIVER_PATH
         if chromedriver_path:
             service = Service(chromedriver_path)
         else:
@@ -96,7 +95,7 @@ class HttpFetcher:
                 return response.status_code, content_type, response.text
 
             except (httpx.TimeoutException, httpx.ConnectError) as e:
-                wait = 2**attempt
+                wait = config.FETCH_BACKOFF_BASE_SECONDS**attempt
                 print(
                     f"[HTTP Fetch]: Retry {attempt}/{self.max_retries} untuk {url} (error: {e}). Menunggu {wait}s..."
                 )
@@ -145,13 +144,13 @@ def _is_js_heavy(content_type: str, body_text: str) -> bool:
     """
     Deteksi halaman yang mungkin perlu browser (JS-heavy).
 
-    Heuristik: HTML dengan teks bersih < 500 karakter. `body_text` adalah teks yang
-    sudah diekstrak `extract_page`, agar HTML tidak diparse dua kali.
+    Heuristik: HTML dengan teks bersih < BROWSER_JS_HEAVY_MIN_CHARS. `body_text` adalah
+    teks yang sudah diekstrak `extract_page`, agar HTML tidak diparse dua kali.
     """
     if "html" not in content_type:
         return False  # Bukan HTML — tidak ada gunanya pakai browser
 
-    return len(body_text) < 500
+    return len(body_text) < config.BROWSER_JS_HEAVY_MIN_CHARS
 
 
 @tool(
@@ -231,7 +230,7 @@ def browse_tool(url: str) -> str:
             with _browser_lock:
                 driver = _get_browser()
                 driver.get(url)
-                # Explicit wait: deteksi <body> hadir, maksimal 10 detik.
+                # Explicit wait: deteksi <body> hadir, maksimal BROWSER_WAIT_TIMEOUT detik.
                 body_element = WebDriverWait(driver, config.BROWSER_WAIT_TIMEOUT).until(
                     EC.presence_of_element_located((By.TAG_NAME, "body"))
                 )
@@ -274,7 +273,7 @@ def _truncated_for_llm(extracted, max_chars: int | None = None) -> str:
         parts.append(f"Judul: {extracted.title}")
     parts.append(f"URL: {extracted.url}")
     if extracted.headings:
-        parts.append(f"Headings: {' | '.join(extracted.headings[:5])}")
+        parts.append(f"Headings: {' | '.join(extracted.headings[: config.FETCH_MAX_HEADINGS])}")
     text = extracted.main_text[:max_chars]
     parts.append(f"Konten:\n{text}")
     return "\n\n".join(parts)

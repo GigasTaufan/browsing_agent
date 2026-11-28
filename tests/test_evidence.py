@@ -5,6 +5,7 @@ Verifikasi deduplikasi dan urutan item evidence.
 
 import pytest
 
+import config
 from storage.evidence import EvidenceStore
 from tools.extract import ExtractedPage
 
@@ -85,3 +86,26 @@ def test_failed_and_empty_pages_are_not_citations(status, text):
     store = EvidenceStore()
     assert store.add(page) is None
     assert store.items == []
+
+
+def test_snippet_length_comes_from_config(monkeypatch):
+    monkeypatch.setattr(config, "EVIDENCE_SNIPPET_CHARS", 5)
+    store = EvidenceStore()
+
+    item = store.add(make_extracted("https://example.com/a", "abcdefghij"))
+
+    assert item is not None
+    assert item.snippet == "abcde"
+
+
+def test_hash_window_comes_from_config(monkeypatch):
+    monkeypatch.setattr(config, "EVIDENCE_HASH_CHARS", 4)
+    first = make_extracted("https://a.example/x", "abcd1111")
+    second = make_extracted("https://b.example/y", "abcd2222")
+    first.canonical_url = second.canonical_url = "https://canonical.example/page"
+
+    assert EvidenceStore._compute_hash(first) == EvidenceStore._compute_hash(second)
+
+    monkeypatch.setattr(config, "EVIDENCE_HASH_CHARS", 6)
+
+    assert EvidenceStore._compute_hash(first) != EvidenceStore._compute_hash(second)

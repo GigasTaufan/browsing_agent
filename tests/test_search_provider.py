@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+import config
 from tools import search as search_module
 
 
@@ -42,6 +43,7 @@ def test_searxng_provider_maps_json_to_line_format(monkeypatch):
         answer = search_module.search_tool.invoke({"query": "kurs dollar"})
 
     fake_client.get.assert_called_once()
+    assert fake_client.get.call_args.kwargs["params"]["safesearch"] == config.SEARXNG_SAFESEARCH
     assert "https://www.bi.go.id/kurs" in answer
     assert "https://example.com/kurs" in answer
     assert "Kurs BI" in answer

@@ -12,6 +12,7 @@ def test_load_llm_selects_modelhub_when_api_key_is_set(monkeypatch):
     monkeypatch.setattr(main.config, "MODELHUB_API_KEY", "modelhub-key")
     monkeypatch.setattr(main.config, "MODELHUB_BASE_URL", "https://modelhub.example/v1")
     monkeypatch.setattr(main.config, "MODELHUB_MODEL_NAME", "example-model")
+    monkeypatch.setattr(main.config, "MODELHUB_USER_AGENT", "test-agent/1")
     monkeypatch.setattr(main, "ChatOpenAI", modelhub)
     monkeypatch.setattr(main, "AzureChatOpenAI", azure)
 
@@ -22,7 +23,7 @@ def test_load_llm_selects_modelhub_when_api_key_is_set(monkeypatch):
         api_key="modelhub-key",
         base_url="https://modelhub.example/v1",
         model="example-model",
-        default_headers={"User-Agent": "curl/8.0"},
+        default_headers={"User-Agent": "test-agent/1"},
         temperature=0.7,
         max_tokens=1500,
         timeout=60,

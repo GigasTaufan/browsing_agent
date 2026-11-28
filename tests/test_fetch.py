@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import httpx
 import pytest
 
 import config
@@ -59,6 +60,27 @@ def test_zero_limit_prevents_network(fetcher, monkeypatch):
 @pytest.mark.parametrize("length, expected", [(499, True), (500, False)])
 def test_js_detection_boundary(length, expected):
     assert fetch._is_js_heavy("text/html", "a" * length) is expected
+
+
+def test_js_detection_uses_configured_threshold(monkeypatch):
+    monkeypatch.setattr(config, "BROWSER_JS_HEAVY_MIN_CHARS", 10)
+
+    assert fetch._is_js_heavy("text/html", "a" * 9) is True
+    assert fetch._is_js_heavy("text/html", "a" * 10) is False
+
+
+def test_http_retry_backoff_uses_config(monkeypatch):
+    monkeypatch.setattr(config, "FETCH_MAX_RETRIES", 3)
+    monkeypatch.setattr(config, "FETCH_BACKOFF_BASE_SECONDS", 3.0)
+    fetcher = fetch.HttpFetcher()
+    fetcher.client.close()
+    fetcher.client = Mock()
+    fetcher.client.get.side_effect = httpx.ConnectError("down")
+    sleeps: list[float] = []
+    monkeypatch.setattr(fetch.time, "sleep", sleeps.append)
+
+    assert fetcher.fetch("https://example.com/a") == (0, "", "")
+    assert sleeps == [3.0, 9.0, 27.0]
 
 
 def test_non_html_does_not_need_browser():
@@ -193,8 +215,8 @@ def test_browser_access_and_cleanup_are_serialized(fetcher, monkeypatch):
 
 
 def test_browser_uses_preinstalled_chromedriver_without_download(monkeypatch):
-    monkeypatch.setenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-    monkeypatch.setenv("CHROME_BIN", "/usr/bin/chromium")
+    monkeypatch.setattr(config, "CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+    monkeypatch.setattr(config, "CHROME_BIN", "/usr/bin/chromium")
     monkeypatch.setattr(fetch, "_browser_instance", None)
     driver = Mock()
     service = Mock()

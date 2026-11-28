@@ -68,6 +68,9 @@ class EvidenceStore:
         Returns:
             EvidenceItem yang baru ditambahkan, atau None jika duplikat.
         """
+        # Respons gagal/konten kosong tidak boleh menjadi bukti untuk jawaban.
+        if not 200 <= extracted.status_code < 300 or not extracted.main_text.strip():
+            return None
         if self.dedup_by_hash(extracted):
             return None
 

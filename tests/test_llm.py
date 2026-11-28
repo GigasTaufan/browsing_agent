@@ -1,17 +1,8 @@
 """Unit test pemilihan provider LLM dan system prompt."""
 
-from datetime import datetime
 from unittest.mock import Mock
 
 import main
-
-
-def test_build_system_prompt_grounds_date_and_evidence_priority():
-    prompt = main.build_system_prompt()
-
-    assert f"Today's date is {datetime.now().strftime('%Y-%m-%d')}." in prompt
-    assert "trust the tool results" in prompt
-    assert "cite the source URLs" in prompt
 
 
 def test_load_llm_selects_modelhub_when_api_key_is_set(monkeypatch):

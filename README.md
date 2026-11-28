@@ -5,10 +5,10 @@ Agen browsing web yang aman, modular, dan legal-compliant untuk menjawab pertany
 ## Fitur Utama
 
 - **LLM dengan ModelHub (utama) / Azure OpenAI (fallback)** — `ChatOpenAI` OpenAI-compatible untuk ModelHub; `AzureChatOpenAI` hanya jika kredensial Azure diisi.
-- **Pencarian Web** — DuckDuckGo dengan retry multi-backend (`lite` → `auto`) dan ranking berbasis kualitas domain.
+- **Pencarian Adaptif** — LLM memahami intent/wilayah, merumuskan query singkat, memilih kandidat relevan, dan menyusun pencarian lanjutan berdasarkan kekurangan bukti. Provider tetap SearXNG/DuckDuckGo.
 - **HTTP-First Fetching** — `httpx` sebagai default; browser Selenium hanya jadi fallback untuk halaman JS-heavy.
 - **Extract Konten Terstruktur** — Menggunakan `trafilatura` / `BeautifulSoup` untuk ekstrak judul, headings, teks utama, dan link.
-- **Evidence & Citations** — Setiap sumber yang di-fetch disimpan secara terstruktur; jawaban akhir mencantumkan URL sumber.
+- **Evidence & Citations Wajib** — Aplikasi mencari dan mengambil sumber sebelum LLM dipanggil. Jawaban harus mengutip bukti dengan `[1]`, `[2]`, dst.; array `citations` hanya berisi halaman yang berhasil diambil dan dikutip. Tanpa bukti atau referensi valid, aplikasi menolak menjawab, bukan mengarang sumber.
 - **Safe Crawling** — Cek `robots.txt`, User-Agent transparan, rate limit per domain, dan stop pada 403/429.
 - **Tool Execution Limits** — Counter tool calls reset per query, dengan batas maksimum tool calls & URLs per query.
 - **CLI Interaktif + Mode Argumen** — Jalankan sekali dengan argumen atau pakai mode interaktif.
@@ -37,35 +37,33 @@ browsing_agent/
 ## Cara Kerja
 
 1. Pengguna memberikan pertanyaan via CLI (argumen atau interaktif).
-2. Agen menyusun rencana — biasanya search dulu menggunakan DuckDuckGo.
-3. Hasil search di-rank dan di-deduplikasi berdasarkan kualitas domain.
-4. Agen memilih URL menjanjikan → cek guardrails → cek `robots.txt` → rate limit → fetch.
+2. LLM menyusun goal, constraints, dan beberapa reformulasi query.
+3. Aplikasi mengambil pool kandidat (`SEARCH_CANDIDATE_LIMIT`, referensi 20). LLM mengevaluasi judul/URL/snippet sebelum seleksi (`MAX_SEARCH_RESULTS`); URL duplikat tidak di-fetch ulang dan domain beragam diprioritaskan.
+4. Fetch tetap dibatasi kuota → guardrails → `robots.txt` → rate limit. Isi halaman dievaluasi: bukti melenceng dibuang, kekurangan bukti memicu query lanjutan sampai cukup atau kuota habis. Tidak ada bypass maupun daftar produk yang di-hardcode.
 5. Fetcher menggunakan HTTP dulu; jika halaman JS-heavy, fallback ke Selenium.
 6. Konten diekstrak secara terstruktur (judul, headings, teks) dan disimpan sebagai evidence.
-7. Agen menyusun jawaban akhir dengan menampilkan citations (sumber URL).
+7. LLM menyintesis hanya dari bukti yang terkumpul, tanpa bergantung pada tool-calling model. Nomor sumber diverifikasi dan disamakan dengan id pada array `citations`. Jika sumber tidak tersedia, hanya pesan ketidakcukupan bukti yang ditampilkan.
+
+Tradeoff: riset menambah panggilan LLM untuk plan/seleksi/evaluasi. Pencarian tetap maksimum `MAX_TOOL_CALLS` per run, fetch maksimum `MAX_URLS_PER_QUERY`; bila bukti hanya parsial, jawaban harus menyatakan batasnya. Tidak menjamin hasil identik dengan Google.
 
 ### Flow Aplikasi
 
 ```mermaid
 flowchart TD
-    A["Pertanyaan pengguna<br/>(CLI argumen / interaktif / API)"] --> B{"Query lolos<br/>guardrails?"}
-    B -->|Diblokir| C["Kembalikan alasan<br/>penolakan"]
-    B -->|Lolos| D["Agent loop (LangChain)<br/>LLM: ModelHub (utama) / Azure OpenAI (fallback)"]
-    D --> E{"Kuota tool call<br/>atau URL habis?"}
-    E -->|Ya| K["Susun jawaban akhir"]
-    E -->|Tidak| F{"LLM memilih tool"}
-    F -->|search_tool| G["DuckDuckGo search<br/>rank + dedup hasil"]
-    F -->|browse_tool| H{"URL lolos guardrails,<br/>robots.txt, rate limit?"}
-    H -->|Tidak| D
-    H -->|Ya| I["Fetch via httpx<br/>(HTTP-first)"]
-    I --> J{"Halaman JS-heavy?"}
-    J -->|Ya| J2["Fallback Selenium<br/>(headless Chrome)"]
-    J2 --> L["Extract konten<br/>(trafilatura / BeautifulSoup)"]
-    J -->|Tidak| L
-    L --> M["Simpan ke EvidenceStore<br/>dedup URL + content hash"]
-    G --> D
-    M --> D
-    K --> N["Output: jawaban + citations<br/>(CLI / JSON)"]
+    A["Pertanyaan CLI/API"] --> B{"Lolos guardrails?"}
+    B -->|Tidak| R["Penolakan, tanpa klaim faktual"]
+    B -->|Ya| P["Plan: intent, constraints, query"]
+    P --> S["Search: pool kandidat dan seleksi relevansi"]
+    S --> F["Fetch URL: kuota, guardrails, robots, rate limit"]
+    F --> E["Ekstraksi dan evaluasi isi halaman"]
+    E --> V{"Bukti relevan cukup?"}
+    V -->|Belum, kuota tersedia| P
+    V -->|Tidak ada bukti, kuota habis| R
+    V -->|Parsial, kuota habis| L
+    V -->|Ya| L["LLM menyintesis dari bukti yang diberikan"]
+    L --> C{"Referensi inline valid?"}
+    C -->|Tidak| R
+    C -->|Ya| O["Jawaban dan citations dari halaman yang dikutip"]
 ```
 
 ## Instalasi
@@ -127,9 +125,10 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 | `LLM_MAX_TOKENS` | `1500` | Maksimum token jawaban LLM |
 | `LLM_TIMEOUT` | `60` | Timeout request LLM (detik) |
 | `LLM_MAX_RETRIES` | `2` | Retry otomatis request LLM |
-| `MLFLOW_TRACING_ENABLED` | `true` | Aktifkan MLflow GenAI tracing untuk LangChain |
-| `MLFLOW_TRACKING_URI` | URL server MLflow internal (lihat `.env.example`) | URI server MLflow untuk tracing |
-| `MLFLOW_EXPERIMENT_NAME` | `browsing-agent-dev` | Nama experiment MLflow |
+| `MLFLOW_TRACING_ENABLED` | `true` | Aktifkan tracing LangChain dan span root request |
+| `MLFLOW_TRACKING_URI` | `http://localhost:5000` | URI MLflow untuk proses di host, lihat `.env.example` |
+| `MLFLOW_EXPERIMENT_ID` | `1` | ID experiment yang sudah ada; aplikasi tidak membuat experiment baru |
+| `MLFLOW_CONTAINER_TRACKING_URI` | `http://host.docker.internal:5000` (Compose) | API container menuju host via host-gateway; allowlist server harus mengizinkan `host.docker.internal:5000` |
 | `MLFLOW_HTTP_TIMEOUT` | `5` | Timeout REST call MLflow (detik) |
 | `MLFLOW_PREFLIGHT_TIMEOUT` | `2.0` | Timeout pre-flight TCP check MLflow saat startup (detik) |
 | `SEARCH_PROVIDER` | `duckduckgo` | Provider pencarian: `duckduckgo` \| `searxng` |
@@ -167,7 +166,7 @@ API dijalankan hanya di jaringan internal Compose; Nginx menerbitkan UI dan API 
 ```bash
 cp .env.example .env
 # Edit .env: set API_ALLOWED_KEYS, UI_API_KEY, UI_TO_API_KEY yang unik serta kredensial provider.
-docker compose --profile prod up --build -d
+docker compose up --build -d
 docker compose ps
 docker compose down
 ```
@@ -193,6 +192,7 @@ Jangan gunakan kredensial provider nyata dalam pengujian. Tes unit API memakai a
 - `/api/` meneruskan header `Authorization` caller apa adanya, sedangkan `/ui-api/` menggunakan `UI_TO_API_KEY` dari environment Nginx (ADR-0009).
 - Halaman UI merupakan halaman uji, bukan autentikasi pengguna. Semua pengakses dapat memakai akses API yang diberikan key UI.
 - Jangan mengekspos port HTTP `8080` ke jaringan yang tidak tepercaya. HTTPS intranet wajib disediakan oleh reverse proxy atau terminasi TLS di depan Nginx.
+- Trace MLflow `browsing_agent.request` menyimpan pertanyaan pengguna dan jawaban akhir mentah, serta metadata citation. Batasi akses dan retensi experiment sesuai kebijakan privasi data.
 
 ## Kepatuhan & Batasan
 

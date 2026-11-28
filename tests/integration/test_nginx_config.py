@@ -74,6 +74,11 @@ def test_valid_caller_request_succeeds_through_nginx_with_stub_backend(tmp_path)
     stub_name = f"task5-api-{suffix}"
     nginx_name = f"task5-nginx-{suffix}"
     caller_key = "task5-caller-smoke-key"
+    # Jangan relabel aset repo dengan :Z: itu memutus akses stack lokal yang masih hidup.
+    frontend_copy = tmp_path / "frontend"
+    shutil.copytree(FRONTEND, frontend_copy, copy_function=shutil.copyfile)
+    template_copy = tmp_path / "default.conf.template"
+    shutil.copyfile(NGINX_TEMPLATE, template_copy)
     stub_script = tmp_path / "stub_api.py"
     stub_script.write_text(
         """from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -148,9 +153,9 @@ HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
             "--env",
             f"UI_TO_API_KEY={caller_key}",
             "--volume",
-            f"{FRONTEND}:/usr/share/nginx/html:ro,Z",
+            f"{frontend_copy}:/usr/share/nginx/html:ro,Z",
             "--volume",
-            f"{NGINX_TEMPLATE}:/etc/nginx/templates/default.conf.template:ro,Z",
+            f"{template_copy}:/etc/nginx/templates/default.conf.template:ro,Z",
             "nginx:alpine",
         )
 
@@ -190,6 +195,9 @@ HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
         assert response is not None and response.returncode == 0 and response.stdout == "ok", (
             "API stub did not become ready before the ingress request"
         )
+
+        frontend_response = docker("exec", nginx_name, "wget", "-qO-", "http://127.0.0.1/")
+        assert "Temukan jawaban yang berlandaskan sumber" in frontend_response.stdout
 
         result = docker(
             "exec",

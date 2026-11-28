@@ -31,3 +31,6 @@ build/
 # Jupyter
 *.ipynb
 .coverage
+
+# Laporan evaluasi mengandung jawaban dan data sensitif.
+/eval-results/

@@ -78,7 +78,7 @@ SEARXNG_BASE_URL = os.getenv("SEARXNG_BASE_URL")
 # --- MLflow GenAI Tracing ---
 # MLFLOW_TRACKING_URI dan kawan-kawannya hanya wajib jika tracing aktif.
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
-MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME")
+MLFLOW_EXPERIMENT_ID = os.getenv("MLFLOW_EXPERIMENT_ID")
 
 # --- API Inbound Limits ---
 # Rate limit per API key via Redis; kosong = dinonaktifkan (dev/CLI). Redis down = 503 (ADR-0006).
@@ -94,6 +94,7 @@ _require(
         "MAX_TOOL_CALLS",
         "MAX_URLS_PER_QUERY",
         "MAX_SEARCH_RESULTS",
+        "SEARCH_CANDIDATE_LIMIT",
         "REQUEST_TIMEOUT",
         "BROWSER_FALLBACK_ENABLED",
         "FETCH_MAX_RETRIES",
@@ -174,6 +175,10 @@ LLM_MAX_RETRIES = _env_int("LLM_MAX_RETRIES")
 MAX_TOOL_CALLS = _env_int("MAX_TOOL_CALLS")
 MAX_URLS_PER_QUERY = _env_int("MAX_URLS_PER_QUERY")
 MAX_SEARCH_RESULTS = _env_int("MAX_SEARCH_RESULTS")
+# Pool kandidat dievaluasi sebelum dipotong menjadi MAX_SEARCH_RESULTS.
+SEARCH_CANDIDATE_LIMIT = _env_int("SEARCH_CANDIDATE_LIMIT")
+if SEARCH_CANDIDATE_LIMIT < MAX_SEARCH_RESULTS:
+    raise ValueError("SEARCH_CANDIDATE_LIMIT harus >= MAX_SEARCH_RESULTS.")
 
 # --- Fetching ---
 REQUEST_TIMEOUT = _env_int("REQUEST_TIMEOUT")
@@ -199,7 +204,7 @@ if MLFLOW_TRACING_ENABLED:
     _require(
         [
             "MLFLOW_TRACKING_URI",
-            "MLFLOW_EXPERIMENT_NAME",
+            "MLFLOW_EXPERIMENT_ID",
             "MLFLOW_HTTP_TIMEOUT",
             "MLFLOW_PREFLIGHT_TIMEOUT",
         ]

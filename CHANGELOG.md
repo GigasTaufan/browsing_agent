@@ -8,16 +8,29 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Evaluator offline `python -m evals validate/run`: baseline LangChain, sintesis DSPy 3.5 dan optimasi GEPA, dataset snapshot train/validation/test, budget seluruh inference, serta laporan privat di `eval-results/`. Group `eval` opsional pada Python 3.14; CLI/API produksi tetap LangChain. Seed 18 kasus sintetis hanya menguji harness, bukan membuktikan kualitas produksi.
+- Pemakaian: `uv sync --locked --group eval`, lalu `uv run --no-sync --group eval python -m evals validate --dataset evals/data/synthesis_seed.jsonl`. Run berbayar: isi variabel `EVAL_*` dari `.env.example`, lalu `python -m evals run --dataset PATH --output DIREKTORI_BARU [--smoke]`; smoke memakai satu kasus per split dan tidak menghasilkan verdict peningkatan kualitas.
+- Error inference provider/auth yang ditelan GEPA tetap tercatat pada ledger bersama dan mencegah penyimpanan program serta evaluasi holdout. Parsing kandidat yang gagal tetap dapat dinilai nol; pesan exception/credential tidak ikut laporan.
+- Tracing aplikasi LangChain diarahkan ke server MLflow dan experiment ID yang sudah ada (`MLFLOW_EXPERIMENT_ID`); `setup_tracing` tidak membuat experiment berdasarkan nama. Default template memakai `http://localhost:5000` dan ID `1`.
+- Satu root span `browsing_agent.request` mengelompokkan invokasi LangGraph/model per request; input berisi pertanyaan dan output berisi jawaban akhir, keduanya mentah. Akses/retensi MLflow harus memperlakukan trace sebagai data pengguna.
+- Kontrak keluaran judge diperjelas: enam field wajib, array boolean JSON dengan panjang/urutan gold yang tepat, dan `unsupported_claims=[]` wajib saat kosong. Validasi tetap ketat; tidak menambah retry atau mengganti provider.
+- Evaluator GEPA memakai `skip_perfect_score=False` agar refleksi tetap dicoba pada minibatch berskor sempurna; opsi ini dicatat dalam manifest run.
+- Evaluator GEPA menerima proposal dengan skor meningkat atau seri (`acceptance_criterion=improvement_or_equal`); seleksi akhir tetap berbasis validation dan opsi dicatat dalam manifest.
+- Judge evaluator meminta `json_schema` ketat dengan field wajib dan panjang array sesuai gold tiap kasus; provider harus mendukung structured output. Tidak ada native tool calling, retry/fallback, atau padding jawaban. Kegagalan scoring pertama (termasuk saat GEPA menelan exception) disimpan dalam `scoring_failure.json` tanpa respons provider mentah; sintesis/refleksi tetap ChatAdapter.
+- Audit kandidat GEPA di `gepa_audit.json`: proposal, penerimaan/penolakan/skip, skor validation per kasus, prompt tiap kandidat, dan indeks pemenang; tanpa LM, credential atau respons refleksi mentah.
+- Pemetaan ID audit GEPA memakai valset terfilter yang sama dengan compile; kasus validation tanpa evidence tetap dievaluasi oleh runner tetapi tidak menggeser label skor kandidat dalam audit.
+- Audit GEPA menyimpan setiap proposal sebelum filter AllImprovements, skor subsampel sebelum/sesudah, hasil acceptance criterion, indeks kandidat yang diterima, serta alasan penolakan dari callback GEPA.
+- Prompt produksi CLI/API memakai kandidat 2 dari audit GEPA; tanggal dinamis, batas tool, validasi citation, dan aturan mengabaikan instruksi dalam evidence tetap dipertahankan. Backend produksi tetap LangChain.
 - Validasi startup `config.py`: `API_ALLOWED_KEYS` & `UI_API_KEY` wajib dan `UI_API_KEY` harus tercantum di `API_ALLOWED_KEYS`; minimal satu provider LLM (ModelHub lengkap atau Azure lengkap) wajib terkonfigurasi (ADR-0002, ADR-0003).
 - Blokir URL internal/privat (SSRF): hostname tanpa titik, `localhost`, IP privat/loopback/link-local/reserved (termasuk bentuk desimal, hex, IPv4-mapped IPv6), dan hostname yang gagal di-resolve (ADR-0008).
 - ADR-0006 (rate limit fail-closed), ADR-0007 (cakupan guardrails), ADR-0008 (SSRF).
-- Profil Compose `prod`/`staging`; staging berjalan dengan `NGINX_PORT=8081` pada host yang sama.
+- Compose tanpa profile menjalankan seluruh stack secara default; staging berjalan dengan `COMPOSE_PROJECT_NAME` dan `NGINX_PORT=8081` terpisah.
 - Coverage gate `--cov-fail-under=83` di CI GitHub Actions & GitLab CI.
 - `UI_TO_API_KEY`: key service Nginx→API terpisah dari `UI_API_KEY` browser; keduanya wajib terdaftar di `API_ALLOWED_KEYS` (ADR-0009).
-- Nginx `/healthz/ready` (proxy ke API) + healthcheck container Nginx; staging via `NGINX_PORT` (ADR-0009).
+- Nginx `/healthz/ready` (proxy ke API) + healthcheck container Nginx; port staging diatur melalui `NGINX_PORT`.
 - Observability minimal: endpoint `/metrics` (format Prometheus) dan event log `api.request` dengan `outcome`/`status`/`duration_ms`; Nginx `safe_access` menambahkan `rt=` (ADR-0010).
 - `tests/test_api.py`: test 503 fail-closed, `/metrics`, satu event per request.
-- `tests/test_compose.py`: kontrak profil staging (`NGINX_PORT`) dan key Nginx wajib.
+- `tests/test_compose.py`: kontrak default stack, provider pencarian, port staging, dan key Nginx dengan env-file sintetis.
 - Route Nginx `location = /api/metrics` (proxy ke API `/metrics`).
 - Test regresi: opsi klien Redis yang diteruskan `build_rate_limiter` (opsi ilegal = 503).
 
@@ -31,6 +44,11 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 - Pipeline pencarian bertipe: provider mengembalikan `list[SearchResult]`; format string untuk LLM dihasilkan satu kali (tidak lagi regex-extract dari teks).
 - Fetch HTTP diserialkan per request (`_fetcher_lock`) agar satu `httpx.Client` tidak dipakai bersamaan; HTML diparse sekali (`extract_page`) sebelum deteksi JS-heavy.
 - Guardrails URL dicek sebelum kuota tool terpakai, sehingga URL internal yang ditolak tidak menghabiskan kuota.
+- Tes Compose memakai salinan konfigurasi dan `.env` sintetis, sehingga kegagalan assertion tidak menampilkan kredensial lokal.
+- Tes Nginx memakai aset sementara; mount prod/staging memakai SELinux shared `:z` agar tes atau staging tidak menyebabkan UI prod 403.
+- Retrieval wajib sebelum sintesis LLM; model tidak bisa melewati pencarian/fetch. Jawaban tanpa nomor referensi valid tidak ditampilkan; halaman kosong/error tidak menjadi citations. Nomor inline disinkronkan dengan id citations API.
+- Riset adaptif: reformulasi query sesuai intent/wilayah, seleksi kandidat oleh LLM, evaluasi isi halaman, pencarian lanjutan untuk kekurangan bukti, dedup lintas query dan prioritas lintas domain. Semua tetap dibatasi kuota per run.
+- `SEARCH_CANDIDATE_LIMIT` wajib di `.env` (referensi 20, >= `MAX_SEARCH_RESULTS`) agar kandidat tidak dipotong sebelum evaluasi relevansi.
 
 ### Removed
 

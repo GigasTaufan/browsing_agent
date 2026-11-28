@@ -212,3 +212,14 @@ def test_browser_uses_preinstalled_chromedriver_without_download(monkeypatch):
     assert chrome_factory.call_args.kwargs["service"] is service
     assert chrome_factory.call_args.kwargs["options"].binary_location == "/usr/bin/chromium"
     driver_manager.assert_not_called()
+
+
+def test_error_page_is_not_browsed_or_stored_as_source(fetcher, monkeypatch):
+    monkeypatch.setattr(config, "BROWSER_FALLBACK_ENABLED", True)
+    fetcher.fetch.return_value = (404, "text/html", "<body>Not Found</body>")
+    browser = Mock()
+    monkeypatch.setattr(fetch, "_get_browser", browser)
+    result = fetch.browse_tool.invoke({"url": "https://example.com/missing"})
+    assert "HTTP 404" in result
+    assert get_run_state().evidence_store.items == []
+    browser.assert_not_called()

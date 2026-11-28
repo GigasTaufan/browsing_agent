@@ -5,10 +5,13 @@ Panduan deploy dan pemulihan untuk operator. Bahasa: Indonesia.
 ## 1. Topologi Deploy
 
 ```
-docker compose --profile prod up -d --build
+docker compose up -d --build
 ```
 
-Tanpa `--profile prod`, service `api` dan `nginx` tidak dijalankan (redis/searxng tetap).
+Semua service aktif pada `docker compose up`; tidak perlu mengaktifkan profile.
+Untuk staging sebagai stack terpisah di host yang sama, gunakan project name dan port berbeda:
+`COMPOSE_PROJECT_NAME=browsing-agent-staging NGINX_PORT=8081 docker compose up -d --build`.
+Hentikan staging dengan `COMPOSE_PROJECT_NAME=browsing-agent-staging docker compose down`.
 
 | Service | Image | Jaringan | Fungsi |
 |---------|-------|----------|--------|
@@ -24,16 +27,19 @@ Tanpa `--profile prod`, service `api` dan `nginx` tidak dijalankan (redis/searxn
 ## 2. Prosedur Deploy / Upgrade
 
 1. `git pull` di mesin deploy.
-2. `docker compose --profile prod up -d --build` (api di-rebuild; nginx re-resolve otomatis ≤10s).
+2. `docker compose up -d --build` (api di-rebuild; nginx re-resolve otomatis ≤10s).
 3. Verifikasi: `curl http://localhost:8080/healthz/ready` → `ok` (proxy ke API); `curl http://localhost:8080/healthz`
    hanya menandakan Nginx hidup; `docker compose ps` semua Up.
 4. Smoke: POST satu pertanyaan via `/ui-api/v1/ask` → jawaban + citations.
 
 Rollback: `git checkout <tag sebelumnya>` lalu ulang langkah 2.
 
-Staging di host yang sama: `NGINX_PORT=8081 docker compose --profile staging up -d --build`
-lalu smoke ke `http://localhost:8081/` (`.env` sama; jangan jalankan bersamaan dengan prod —
-port 8080 bentrok). Service tanpa profil (redis, searxng) tetap jalan.
+Staging terpisah di host yang sama menggunakan perintah di atas; smoke ke `http://localhost:8081/`.
+Project name berbeda memberi container/network terpisah. `.env` shared; gunakan key staging berbeda bila
+perlu isolasi akses lebih ketat.
+
+Mount aset memakai SELinux shared `:z`. Tes Nginx hanya me-mount salinan sementara;
+menjalankan pytest tidak mengganti label frontend/config stack lokal yang sedang berjalan.
 
 ## 3. Kredensial & Environment
 
@@ -42,15 +48,16 @@ Wajib di `.env` (gitignored): `MODELHUB_API_KEY` (atau kredensial Azure), `API_A
 kedua key UI harus tercantum di `API_ALLOWED_KEYS`. Variabel operasional lain juga wajib — lihat `.env.example`.
 
 Rotasi `UI_API_KEY` (browser) dan/atau `UI_TO_API_KEY` (service Nginx→API): ganti nilai di `.env`
-→ `docker compose --profile prod up -d --force-recreate nginx api`.
+→ `docker compose up -d --force-recreate nginx api`.
 Tidak perlu redeploy frontend (key tidak pernah ada di aset statis).
 
 ## 4. Observability
 
 - **Health**: `GET /healthz` (Nginx hidup) dan `GET /healthz/ready` (200 hanya jika API hidup — dipakai healthcheck container); `docker compose ps`.
-- **Tracing**: MLflow di `MLFLOW_TRACKING_URI` (nilai intranet ada di `.env`),
-  experiment `browsing-agent-dev`. Setiap run agent menghasilkan trace; span `search_tool`
-  memiliki atribut `search.provider` dan `search.fallback_used`.
+- **Tracing**: experiment MLflow yang sudah ada dipilih lewat `MLFLOW_EXPERIMENT_ID` (default template `1`); aplikasi tidak membuat experiment.
+  Proses host memakai `MLFLOW_TRACKING_URI=http://localhost:5000`. API Compose memakai `MLFLOW_CONTAINER_TRACKING_URI=http://host.docker.internal:5000`; alias `host.docker.internal:host-gateway` disetel Compose, dan server MLflow harus mengizinkan `host.docker.internal:5000` di `MLFLOW_SERVER_ALLOWED_HOSTS`.
+  Setiap request agent menghasilkan satu root span `browsing_agent.request` dengan child spans LangGraph/model dan `browse_tool`. Atribut `search.provider`/`search.fallback_used` ditempel pada trace aktif; search bukan span tersendiri.
+  Inputs/outputs root berisi teks pertanyaan dan jawaban akhir mentah (selain jumlah karakter dan metadata citation). Batasi akses dan retensi trace karena dapat memuat data pengguna.
 - **Log operasional**: stderr container api berisi JSON lines dari `oplog`
   (`api.request` per request: `outcome`, `status`, `duration_ms`; `rate_limit.redis_error`):
   `docker compose logs api | grep '"event"'`.

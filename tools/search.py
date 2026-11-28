@@ -89,7 +89,7 @@ def _search_ddgs(query: str) -> list[SearchResult]:
                 results = ddgs.text(
                     query,
                     backend=ddgs_backend,
-                    max_results=config.MAX_SEARCH_RESULTS,
+                    max_results=config.SEARCH_CANDIDATE_LIMIT,
                 )
 
             if results:
@@ -135,7 +135,7 @@ def _search_searxng(query: str) -> list[SearchResult]:
             url=result.get("url", ""),
             snippet=result.get("content", ""),
         )
-        for result in results[: config.MAX_SEARCH_RESULTS]
+        for result in results[: config.SEARCH_CANDIDATE_LIMIT]
     ]
 
 
@@ -159,62 +159,54 @@ def _record_provider_attributes(provider_name: str, fallback_used: bool) -> None
         pass
 
 
-_PROVIDERS: dict[str, Callable[[str], list[SearchResult]]] = {
-    "duckduckgo": _search_ddgs,
-    "searxng": _search_searxng,
-}
-
-
 @tool(
     "search_tool",
     description="Lakukan pencarian web (DuckDuckGo atau SearXNG sesuai konfigurasi) untuk mendapatkan daftar link dan ringkasan.",
 )
 def search_tool(query: str) -> str:
-    """
-    Mencari web menggunakan provider terpilih (SEARCH_PROVIDER) dan
-    mengembalikan hasil yang sudah di-rank dan di-deduplikasi.
-    """
+    """Cari web dan format hasil untuk konsumen tool LangChain."""
     try:
-        check_and_increment("search_tool", config.MAX_TOOL_CALLS)
-    except ToolLimitReached as e:
-        return str(e)
+        results = search_web(query)
+    except (RuntimeError, ToolLimitReached) as exc:
+        return str(exc)
+    return _format_results(results) if results else "Tidak ada hasil pencarian."
 
+
+def search_web(query: str) -> list[SearchResult]:
+    """Pencarian bertipe dengan provider/fallback dan kuota search_tool."""
+    check_and_increment("search_tool", config.MAX_TOOL_CALLS)
     print(f"\n[Search Tool]: Searching '{query}'...")
-
+    providers: dict[str, Callable[[str], list[SearchResult]]] = {
+        "duckduckgo": _search_ddgs,
+        "searxng": _search_searxng,
+    }
     primary = config.SEARCH_PROVIDER
-    if primary not in _PROVIDERS:
-        return (
+    if primary not in providers:
+        raise RuntimeError(
             f"[Search Tool]: SEARCH_PROVIDER tidak dikenal: {primary!r} "
             "(pilihan: duckduckgo, searxng)."
         )
-
     order = [primary]
     if config.SEARCH_FALLBACK_ENABLED:
-        # SearXNG hanya tersedia jika base URL dikonfigurasi.
         order += [
             name
-            for name in _PROVIDERS
+            for name in providers
             if name != primary and (name != "searxng" or config.SEARXNG_BASE_URL)
         ]
-
     last_error: Exception | None = None
     for provider_name in order:
         try:
-            formatted = _format_results(_PROVIDERS[provider_name](query))
-            if formatted:
-                _record_provider_attributes(provider_name, fallback_used=provider_name != primary)
-                print(
-                    f"[Search Tool]: Sukses mendapatkan hasil pencarian (provider={provider_name})."
-                )
-                return formatted
-            print(
-                f"[Search Tool]: Provider '{provider_name}' tidak menghasilkan link, coba berikutnya..."
+            results = _rank_and_dedup(
+                providers[provider_name](query), config.SEARCH_CANDIDATE_LIMIT
             )
-        except Exception as e:
-            last_error = e
-            print(f"[Search Tool]: Provider '{provider_name}' gagal: {e}")
-
-    if last_error is None:
-        return "Tidak ada hasil pencarian."
-    print(f"[Search Tool]: Gagal melakukan pencarian untuk '{query}'. Detail error: {last_error}")
-    return f"[Search Tool]: Tidak dapat melakukan pencarian. Error: {last_error}"
+            if results:
+                _record_provider_attributes(provider_name, fallback_used=provider_name != primary)
+                return results
+        except Exception as exc:
+            last_error = exc
+            print(f"[Search Tool]: Provider '{provider_name}' gagal: {exc}")
+    if last_error is not None:
+        raise RuntimeError(
+            f"[Search Tool]: Tidak dapat melakukan pencarian. Error: {last_error}"
+        ) from last_error
+    return []

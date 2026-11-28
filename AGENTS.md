@@ -79,7 +79,7 @@ uv run python main.py                # mode interaktif
 uv run python main.py "..." --verbose
 
 # Full stack (API + UI + SearXNG + Redis + Nginx) di http://localhost:8080
-docker compose --profile prod up -d --build
+docker compose up -d --build
 
 # Menjalankan tests
 uv run python -m pytest tests/

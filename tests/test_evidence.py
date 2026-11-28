@@ -3,6 +3,8 @@ Unit test untuk storage/evidence.py.
 Verifikasi deduplikasi dan urutan item evidence.
 """
 
+import pytest
+
 from storage.evidence import EvidenceStore
 from tools.extract import ExtractedPage
 
@@ -74,3 +76,12 @@ def test_evidence_keeps_unique_items_in_fetch_order():
     assert [item.url for item in store.items] == ["https://a.com", "https://b.com"]
     assert store.items[0].canonical_url == "https://a.com"
     assert store.items[1].title == "Judul B"
+
+
+@pytest.mark.parametrize("status,text", [(404, "Error page"), (200, "  "), (500, "Server error")])
+def test_failed_and_empty_pages_are_not_citations(status, text):
+    page = make_extracted("https://example.com/a", text)
+    page.status_code = status
+    store = EvidenceStore()
+    assert store.add(page) is None
+    assert store.items == []

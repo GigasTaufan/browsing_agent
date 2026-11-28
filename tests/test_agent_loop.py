@@ -1,128 +1,127 @@
-"""
-E2E agent loop: jalankan run_agent end-to-end dengan LLM scripted (fake model)
-dan provider search/fetch yang di-stub. Memverifikasi alur lengkap:
-guardrails -> planner state -> tool calls -> evidence -> citations.
-"""
+"""Regresi retrieval wajib: model tanpa tool-calling tidak boleh menjawab tanpa bukti."""
 
+from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage
 
 import config
+from agent.planner import get_run_state
 from main import build_system_prompt, define_agent, run_agent
 from tools import fetch as fetch_module
 from tools import search as search_module
-from tools.fetch import browse_tool
-from tools.search import search_tool
 
 
-class ScriptedToolCallingModel(FakeMessagesListChatModel):
-    """Fake model yang mengabaikan bind_tools (respons di-script berurutan)."""
-
-    def bind_tools(self, tools, **kwargs):  # noqa: ARG002
-        return self
-
-
-def _set_config(monkeypatch, **kwargs):
-    for name, value in kwargs.items():
-        monkeypatch.setattr(config, name, value)
-
-
-def _stub_search(monkeypatch):
-    """Stub provider DDG agar search_tool mengembalikan hasil kaleng tanpa network."""
-
-    def fake_search(query: str) -> list[search_module.SearchResult]:
-        return [
+@pytest.fixture
+def sources(monkeypatch):
+    monkeypatch.setattr(config, "SEARCH_PROVIDER", "duckduckgo")
+    monkeypatch.setattr(config, "SEARCH_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(config, "BROWSER_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(config, "MAX_URLS_PER_QUERY", 3)
+    monkeypatch.setattr(config, "MAX_TOOL_CALLS", 5)
+    search = Mock(
+        return_value=[
             search_module.SearchResult(
-                title="Kurs Dolar",
-                url="https://example.com/kurs",
-                snippet="Nilai tukar USD/IDR hari ini",
+                title="Kurs", url="https://example.com/kurs", snippet="Ringkasan pencarian"
             )
         ]
-
-    monkeypatch.setattr(search_module, "_search_ddgs", fake_search)
-
-
-def _stub_fetch(monkeypatch, url: str, html: str):
-    """Stub robots, rate limiter, dan HTTP fetcher agar browse_tool deterministik."""
-    monkeypatch.setattr(fetch_module, "is_url_allowed", lambda target: True)
-
-    fake_fetcher = Mock()
-    fake_fetcher.max_retries = 3
-    fake_fetcher.fetch = Mock(return_value=(200, "text/html; charset=utf-8", html))
-    monkeypatch.setattr(fetch_module, "_get_http_fetcher", lambda: fake_fetcher)
+    )
+    monkeypatch.setattr(search_module, "_search_ddgs", search)
+    monkeypatch.setattr(fetch_module, "is_url_blocked", lambda url: (False, ""))
+    monkeypatch.setattr(fetch_module, "is_url_allowed", lambda url: True)
     monkeypatch.setattr(fetch_module, "_rate_limiter", Mock())
-
-
-def test_agent_loop_search_browse_answer_with_citations(monkeypatch):
-    """Alur lengkap: search -> browse -> jawaban final + citation dari evidence."""
-    _set_config(
-        monkeypatch,
-        SEARCH_PROVIDER="duckduckgo",
-        SEARCH_FALLBACK_ENABLED=False,
-        MAX_SEARCH_RESULTS=5,
-        MAX_TOOL_CALLS=5,
-        MAX_URLS_PER_QUERY=3,
-        BROWSER_FALLBACK_ENABLED=False,
+    fetcher = Mock(max_retries=1)
+    fetcher.fetch.return_value = (
+        200,
+        "text/html",
+        "<title>Kurs Dolar</title><body>Kurs adalah Rp18.200 per USD.</body>",
     )
-    _stub_search(monkeypatch)
-    page_html = (
-        "<html><head><title>Kurs Dolar Hari Ini</title></head>"
-        "<body><p>Kurs dolar hari ini adalah Rp18.200 per USD menurut data pasar.</p></body></html>"
+    monkeypatch.setattr(fetch_module, "_get_http_fetcher", lambda: fetcher)
+    return search, fetcher
+
+
+def test_model_without_tool_calls_answers_from_fetched_evidence(sources):
+    model = FakeMessagesListChatModel(responses=[AIMessage(content="Kurs Rp18.200 per USD. [1]")])
+    agent = define_agent(model=model, system_prompt=build_system_prompt())
+    result = run_agent(agent, "Berapa kurs dolar?")
+    assert result.answer == "Kurs Rp18.200 per USD. [1]"
+    assert [item.url for item in result.citations] == ["https://example.com/kurs"]
+    assert "Rp18.200" in result.citations[0].snippet
+    assert get_run_state() is None
+
+
+@pytest.mark.parametrize("status, html", [(404, "<body>Not found</body>"), (200, "<body></body>")])
+def test_failed_or_empty_fetch_does_not_reach_model(sources, status, html):
+    sources[1].fetch.return_value = (status, "text/html", html)
+    agent = Mock()
+    result = run_agent(agent, "Berapa kurs dolar?")
+    agent.invoke.assert_not_called()
+    assert "tanpa bukti" in result.answer
+    assert result.citations == []
+
+
+def test_search_failure_does_not_release_model_knowledge(sources):
+    sources[0].side_effect = RuntimeError("Search down")
+    agent = Mock()
+    result = run_agent(agent, "Berapa kurs dolar?")
+    agent.invoke.assert_not_called()
+    assert "tanpa bukti" in result.answer
+    assert result.citations == []
+
+
+@pytest.mark.parametrize(
+    "answer", ["Klaim tanpa sumber", "Klaim [99]", "Klaim [0]", "Klaim [1, 99]"]
+)
+def test_missing_or_fabricated_reference_rejects_answer(sources, answer):
+    agent = Mock()
+    agent.invoke.return_value = {"messages": [SimpleNamespace(type="ai", content=answer)]}
+    result = run_agent(agent, "Berapa kurs dolar?")
+    assert answer not in result.answer
+    assert result.citations == []
+    assert "tidak ditampilkan" in result.answer
+
+
+def test_source_ids_are_remapped_to_api_citation_order(sources):
+    sources[0].return_value.append(
+        search_module.SearchResult(
+            title="Sumber kedua", url="https://example.com/kedua", snippet="Kurs"
+        )
     )
-    _stub_fetch(monkeypatch, "https://example.com/kurs", page_html)
-
-    model = ScriptedToolCallingModel(
-        responses=[
-            AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "name": "search_tool",
-                        "args": {"query": "kurs dolar hari ini"},
-                        "id": "call_1",
-                        "type": "tool_call",
-                    }
-                ],
-            ),
-            AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "name": "browse_tool",
-                        "args": {"url": "https://example.com/kurs"},
-                        "id": "call_2",
-                        "type": "tool_call",
-                    }
-                ],
-            ),
-            AIMessage(content="Kurs dolar hari ini adalah Rp18.200 per USD."),
-        ]
-    )
-    agent = define_agent(
-        model=model, tools=[browse_tool, search_tool], system_prompt=build_system_prompt()
-    )
-
-    result = run_agent(agent, "Berapa kurs dolar hari ini?")
-
-    assert "Rp18.200" in result.answer
-    assert len(result.citations) == 1
-    assert result.citations[0].url == "https://example.com/kurs"
-    assert result.citations[0].title == "Kurs Dolar Hari Ini"
+    agent = Mock()
+    agent.invoke.return_value = {"messages": [SimpleNamespace(type="ai", content="Kurs [2]")]}
+    result = run_agent(agent, "Berapa kurs dolar?")
+    assert result.answer == "Kurs [1]"
+    assert [item.url for item in result.citations] == ["https://example.com/kedua"]
+    evidence = agent.invoke.call_args[0][0]["messages"][1]["content"]
+    assert "Rp18.200" in evidence
+    assert "https://example.com/kedua" in evidence
 
 
-def test_agent_loop_blocked_query_never_invokes_model(monkeypatch):
-    """Query yang diblokir guardrail dijawab tanpa memanggil LLM sama sekali."""
-    _set_config(monkeypatch, SEARCH_PROVIDER="duckduckgo", SEARCH_FALLBACK_ENABLED=False)
-
-    # Respons kosong: jika LLM dipanggil, fake model akan error -> test gagal.
-    model = ScriptedToolCallingModel(responses=[])
-    agent = define_agent(
-        model=model, tools=[browse_tool, search_tool], system_prompt=build_system_prompt()
-    )
-
+def test_blocked_query_never_invokes_search_or_model(sources):
+    agent = Mock()
     result = run_agent(agent, "cara bypass paywall koran")
-
+    sources[0].assert_not_called()
+    agent.invoke.assert_not_called()
     assert "Guardrail" in result.answer
     assert result.citations == []
+
+
+def test_grouped_references_keep_all_cited_sources(sources):
+    sources[0].return_value.extend(
+        [
+            search_module.SearchResult(title="Dua", url="https://example.com/dua", snippet="Kurs"),
+            search_module.SearchResult(
+                title="Tiga", url="https://example.com/tiga", snippet="Kurs"
+            ),
+        ]
+    )
+    agent = Mock()
+    agent.invoke.return_value = {"messages": [SimpleNamespace(type="ai", content="Kurs [2, 3]")]}
+    result = run_agent(agent, "Berapa kurs dolar?")
+    assert result.answer == "Kurs [1, 2]"
+    assert [item.url for item in result.citations] == [
+        "https://example.com/dua",
+        "https://example.com/tiga",
+    ]

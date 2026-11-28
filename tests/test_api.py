@@ -7,10 +7,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 import config
-from agent.planner import get_run_state
 from api import create_app
 from policy.inbound_rate_limit import RateLimitDecision
-from storage.evidence import EvidenceItem
+from tools import fetch as fetch_module
+from tools import search as search_module
 
 API_KEY = "caller-test-key"
 
@@ -25,17 +25,7 @@ class StubAgent:
         if self.error is not None:
             raise self.error
 
-        state = get_run_state()
-        assert state is not None
-        state.evidence_store.items.append(
-            EvidenceItem(
-                url="https://example.com/article",
-                title="Example article",
-                snippet="A short source excerpt.",
-                canonical_url="https://example.com/article",
-            )
-        )
-        return {"messages": [SimpleNamespace(type="ai", content="An answer.")]}
+        return {"messages": [SimpleNamespace(type="ai", content="An answer. [1]")]}
 
 
 class StubLimiter:
@@ -48,6 +38,35 @@ class StubLimiter:
     async def check(self, api_key: str) -> RateLimitDecision:
         self.keys.append(api_key)
         return self.decision
+
+
+@pytest.fixture(autouse=True)
+def web_evidence(monkeypatch):
+    """Stub batas HTTP/search tanpa jaringan; pipeline grounding tetap dijalankan."""
+    monkeypatch.setattr(config, "SEARCH_PROVIDER", "duckduckgo")
+    monkeypatch.setattr(config, "SEARCH_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(config, "BROWSER_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(
+        search_module,
+        "_search_ddgs",
+        lambda query: [
+            search_module.SearchResult(
+                title="Example article",
+                url="https://example.com/article",
+                snippet="A short source excerpt.",
+            )
+        ],
+    )
+    monkeypatch.setattr(fetch_module, "is_url_blocked", lambda url: (False, ""))
+    monkeypatch.setattr(fetch_module, "is_url_allowed", lambda url: True)
+    monkeypatch.setattr(fetch_module, "_rate_limiter", Mock())
+    fetcher = Mock(max_retries=1)
+    fetcher.fetch.return_value = (
+        200,
+        "text/html",
+        "<title>Example article</title><body>A short source excerpt.</body>",
+    )
+    monkeypatch.setattr(fetch_module, "_get_http_fetcher", lambda: fetcher)
 
 
 @pytest.fixture
@@ -79,7 +98,7 @@ def test_valid_question_returns_separate_answer_and_citations(api_client):
 
     assert response.status_code == 200
     assert response.json() == {
-        "answer": "An answer.",
+        "answer": "An answer. [1]",
         "citations": [
             {
                 "id": 1,
@@ -90,7 +109,7 @@ def test_valid_question_returns_separate_answer_and_citations(api_client):
         ],
     }
     assert len(agent.calls) == 1
-    assert agent.calls[0]["messages"] == [{"role": "user", "content": "What is new?"}]
+    assert agent.calls[0]["messages"][0] == {"role": "user", "content": "What is new?"}
 
 
 @pytest.mark.parametrize(

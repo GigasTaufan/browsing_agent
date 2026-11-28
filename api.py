@@ -21,8 +21,7 @@ from policy.inbound_rate_limit import (
     RateLimiterProtocol,
     build_rate_limiter,
 )
-from tools.fetch import browse_tool, fetcher_cleanup
-from tools.search import search_tool
+from tools.fetch import fetcher_cleanup
 
 
 class AskRequest(BaseModel):
@@ -50,9 +49,7 @@ class AskResponse(BaseModel):
 
 def _default_agent_factory():
     model = load_llm()
-    return define_agent(
-        model=model, tools=[browse_tool, search_tool], system_prompt=build_system_prompt()
-    )
+    return define_agent(model=model, system_prompt=build_system_prompt())
 
 
 def _error(code: str, message: str) -> dict[str, dict[str, str]]:

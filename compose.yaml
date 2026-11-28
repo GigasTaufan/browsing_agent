@@ -1,8 +1,7 @@
 services:
+  # Tanpa profil = default: service inti (api, nginx, redis, searxng) langsung menyala
+  # dengan `docker compose up`. Profil hanya untuk pemisahan eksplisit bila diinginkan.
   api:
-    profiles:
-      - prod
-      - staging
     build:
       context: .
       dockerfile: Dockerfile
@@ -11,8 +10,10 @@ services:
     environment:
       # Fail-closed (ADR-0006): nilainya wajib terisi walau .env lupa menulisnya.
       RATE_LIMIT_REDIS_URL: ${RATE_LIMIT_REDIS_URL:-redis://redis:6379/0}
-      # Default ke SearXNG internal; override via SEARXNG_BASE_URL di .env.
+      # Provider pencarian: SearXNG internal (self-hosted). DuckDuckGo bisa diblokir/CAPTCHA
+      # dari IP server, sehingga default ke SearXNG.
       SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080}
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-searxng}
     networks:
       - backend
       - egress
@@ -31,8 +32,10 @@ services:
     image: searxng/searxng:latest
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET:?Set SEARXNG_SECRET in .env (copy .env.example first)}
+      # Engine wikipedia/wikidata/openstreetmap butuh contact_url agar terdaftar.
+      SEARXNG_CONTACT_URL: ${SEARXNG_CONTACT_URL:?Set SEARXNG_CONTACT_URL in .env (email admin)}
     volumes:
-      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro,Z
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro,z
     networks:
       - egress
     restart: unless-stopped
@@ -56,10 +59,9 @@ services:
       # Default 8080 (prod); staging di host yang sama pakai NGINX_PORT=8081.
       - "${NGINX_PORT:-8080}:80"
     volumes:
-      - ./frontend:/usr/share/nginx/html:ro,Z
-      # Bind mount FILE (bukan direktori) agar edit template ikut terlihat saat recreate;
-      # dicek ke nginx -t sebelum reload (lihat healthcheck tidak memakai ini).
-      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro,Z
+      # Label SELinux shared (:z): prod dan staging boleh membaca aset yang sama.
+      - ./frontend:/usr/share/nginx/html:ro,z
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro,z
     networks:
       - backend
       # Nginx butuh satu network non-internal agar port publish 8080 berfungsi;
@@ -76,9 +78,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    profiles:
-      - prod
-      - staging
 
 networks:
   backend:

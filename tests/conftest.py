@@ -17,6 +17,7 @@ TEST_ENV_DEFAULTS = {
     "UI_API_KEY": "test-ui-key",
     "UI_TO_API_KEY": "test-ui-to-api-key",
     "SEARXNG_SECRET": "test-searxng-secret",
+    "SEARXNG_CONTACT_URL": "mailto:admin@example.com",
     "MODELHUB_API_KEY": "test-modelhub-key",
     "MODELHUB_BASE_URL": "https://modelhub.test/v1",
     "MODELHUB_MODEL_NAME": "test-model",

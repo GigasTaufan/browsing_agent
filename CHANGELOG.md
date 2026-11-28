@@ -11,13 +11,13 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 - Validasi startup `config.py`: `API_ALLOWED_KEYS` & `UI_API_KEY` wajib dan `UI_API_KEY` harus tercantum di `API_ALLOWED_KEYS`; minimal satu provider LLM (ModelHub lengkap atau Azure lengkap) wajib terkonfigurasi (ADR-0002, ADR-0003).
 - Blokir URL internal/privat (SSRF): hostname tanpa titik, `localhost`, IP privat/loopback/link-local/reserved (termasuk bentuk desimal, hex, IPv4-mapped IPv6), dan hostname yang gagal di-resolve (ADR-0008).
 - ADR-0006 (rate limit fail-closed), ADR-0007 (cakupan guardrails), ADR-0008 (SSRF).
-- Profil Compose `prod`/`staging`; staging berjalan dengan `NGINX_PORT=8081` pada host yang sama.
+- Compose tanpa profile menjalankan seluruh stack secara default; staging berjalan dengan `COMPOSE_PROJECT_NAME` dan `NGINX_PORT=8081` terpisah.
 - Coverage gate `--cov-fail-under=83` di CI GitHub Actions & GitLab CI.
 - `UI_TO_API_KEY`: key service Nginx→API terpisah dari `UI_API_KEY` browser; keduanya wajib terdaftar di `API_ALLOWED_KEYS` (ADR-0009).
-- Nginx `/healthz/ready` (proxy ke API) + healthcheck container Nginx; staging via `NGINX_PORT` (ADR-0009).
+- Nginx `/healthz/ready` (proxy ke API) + healthcheck container Nginx; port staging diatur melalui `NGINX_PORT`.
 - Observability minimal: endpoint `/metrics` (format Prometheus) dan event log `api.request` dengan `outcome`/`status`/`duration_ms`; Nginx `safe_access` menambahkan `rt=` (ADR-0010).
 - `tests/test_api.py`: test 503 fail-closed, `/metrics`, satu event per request.
-- `tests/test_compose.py`: kontrak profil staging (`NGINX_PORT`) dan key Nginx wajib.
+- `tests/test_compose.py`: kontrak default stack, provider pencarian, port staging, dan key Nginx dengan env-file sintetis.
 - Route Nginx `location = /api/metrics` (proxy ke API `/metrics`).
 - Test regresi: opsi klien Redis yang diteruskan `build_rate_limiter` (opsi ilegal = 503).
 
@@ -31,6 +31,9 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 - Pipeline pencarian bertipe: provider mengembalikan `list[SearchResult]`; format string untuk LLM dihasilkan satu kali (tidak lagi regex-extract dari teks).
 - Fetch HTTP diserialkan per request (`_fetcher_lock`) agar satu `httpx.Client` tidak dipakai bersamaan; HTML diparse sekali (`extract_page`) sebelum deteksi JS-heavy.
 - Guardrails URL dicek sebelum kuota tool terpakai, sehingga URL internal yang ditolak tidak menghabiskan kuota.
+- Tes Compose memakai salinan konfigurasi dan `.env` sintetis, sehingga kegagalan assertion tidak menampilkan kredensial lokal.
+- Tes Nginx memakai aset sementara; mount prod/staging memakai SELinux shared `:z` agar tes atau staging tidak menyebabkan UI prod 403.
+- Retrieval wajib sebelum sintesis LLM; model tidak bisa melewati pencarian/fetch. Jawaban tanpa nomor referensi valid tidak ditampilkan; halaman kosong/error tidak menjadi citations. Nomor inline disinkronkan dengan id citations API.
 
 ### Removed
 

@@ -213,6 +213,9 @@ def browse_tool(url: str) -> str:
             "Mungkin terkena rate limit atau blokir."
         )
 
+    if not 200 <= status < 300:
+        return f"[Browser Tool]: HTTP {status}; halaman gagal tidak dipakai sebagai sumber."
+
     # 6) Skip non-HTML content
     if "html" not in content_type:
         return (

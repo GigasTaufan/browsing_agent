@@ -118,7 +118,6 @@ _require(
         "SEARCH_PROVIDER",
         "SEARCH_FALLBACK_ENABLED",
         "MLFLOW_TRACING_ENABLED",
-        "CHUNK_SIZE",
         "RATE_LIMIT_REQUESTS_PER_MINUTE",
         "RATE_LIMIT_REDIS_TIMEOUT",
         "RATE_LIMIT_WINDOW_SECONDS",
@@ -128,7 +127,6 @@ _require(
         "SEARCH_TRUSTED_DOMAINS",
         "SEARCH_TRUSTED_SCORE",
         "SEARCH_DEFAULT_SCORE",
-        "SEARCH_LOG_TOP_RESULTS",
         "DDG_RETRY_BACKENDS",
         "DDG_RETRY_DELAY_SECONDS",
         "SEARXNG_SAFESEARCH",
@@ -246,8 +244,6 @@ SEARCH_FALLBACK_ENABLED = _env_bool("SEARCH_FALLBACK_ENABLED")
 SEARCH_TRUSTED_DOMAINS = _env_csv("SEARCH_TRUSTED_DOMAINS")
 SEARCH_TRUSTED_SCORE = _env_int("SEARCH_TRUSTED_SCORE")
 SEARCH_DEFAULT_SCORE = _env_int("SEARCH_DEFAULT_SCORE")
-# Jumlah link teratas yang dicetak ke log pencarian.
-SEARCH_LOG_TOP_RESULTS = _env_int("SEARCH_LOG_TOP_RESULTS")
 # Urutan backend DuckDuckGo: "lite" dipetakan ke backend ddgs "duckduckgo".
 DDG_RETRY_BACKENDS = _env_csv("DDG_RETRY_BACKENDS")
 DDG_RETRY_DELAY_SECONDS = _env_float("DDG_RETRY_DELAY_SECONDS")
@@ -273,7 +269,6 @@ if MLFLOW_TRACING_ENABLED:
     MLFLOW_PREFLIGHT_TIMEOUT = _env_float("MLFLOW_PREFLIGHT_TIMEOUT")
 
 # --- Content Extraction ---
-CHUNK_SIZE = _env_int("CHUNK_SIZE")
 # Jumlah karakter main_text untuk hash dedup dan snippet citation.
 EVIDENCE_HASH_CHARS = _env_int("EVIDENCE_HASH_CHARS")
 EVIDENCE_SNIPPET_CHARS = _env_int("EVIDENCE_SNIPPET_CHARS")

@@ -41,8 +41,12 @@ Bahasa utama untuk komentar, docstring, dan dokumentasi adalah **Bahasa Indonesi
 browsing_agent/
 ├── main.py                      # CLI entry point: LLM, tracing, system prompt, agent loop
 ├── api.py                       # FastAPI app factory: auth bearer, rate limit, concurrency cap
-├── config.py                    # Load .env, defaults, fail-fast helpers
-├── agent/planner.py             # Per-run state (ContextVar): tool limits, evidence, blocked domains
+├── oplog.py                     # Structured operational log (JSON lines ke stderr)
+├── config.py                    # Load .env, fail-fast validation
+├── agent/
+│   ├── planner.py               # Per-run state (ContextVar): tool limits, evidence, blocked domains
+│   ├── research.py              # Plan → select → review loop; kuota per run
+│   └── synthesis.py             # Sintesis jawaban + validasi citations
 ├── tools/
 │   ├── search.py                # Search pluggable (DDG/SearXNG) + fallback + atribut span MLflow
 │   ├── fetch.py                 # HTTP-first fetcher + Selenium fallback, rate limit, robots
@@ -53,15 +57,19 @@ browsing_agent/
 │   ├── rate_limit.py            # Rate limit per domain outbound (time.sleep)
 │   └── inbound_rate_limit.py    # Rate limit per API key via Redis (fail-closed)
 ├── storage/evidence.py          # EvidenceStore: dedup URL & content hash, citations
+├── evals/                       # Runner evaluasi offline (schema, scoring, GEPA)
+├── scripts/                     # Utility manual (contoh: modelhub.py)
 ├── frontend/                    # UI statis (tanpa API key; Nginx menyuntik key)
 ├── nginx/                       # Template Nginx (resolver dinamik, /ui-api/ rewrite)
 ├── searxng/settings.yml         # Konfigurasi SearXNG (JSON format)
 ├── tests/                       # pytest (unit + integration nginx)
 ├── docs/
-│   ├── adr/                     # ADR-0001..0005 (state, fetch, nginx key, robots, rate limit)
+│   ├── adr/                     # ADR-0001..0010 (state, fetch, nginx, robots, rate limit, SSRF, observability)
 │   ├── PRD.md
-│   └── plan_upgrade.md          # Roadmap ADLC
-├── .github/workflows/ci.yml     # CI: ruff + mypy + pytest + docker build
+│   ├── plan_upgrade.md          # Roadmap ADLC
+│   └── RUNBOOK.md               # Operasional stack
+├── .github/workflows/ci.yml     # GitHub Actions: ruff + mypy + pytest + docker build
+├── .gitlab-ci.yml               # GitLab CI: quality + tests
 ├── compose.yaml                 # api, searxng, redis, nginx
 ├── pyproject.toml               # Deps + config ruff/mypy/pytest
 └── .env / .env.example          # Kredensial & settings (jangan commit .env)
@@ -106,12 +114,9 @@ uv run python -m pytest tests/
 ```
 
 - `tests/conftest.py` menonaktifkan async trace queue MLflow agar exit pytest cepat, dan mengisi nilai test untuk variabel wajib (config tanpa default; .env lokal menang).
-- `tests/test_api.py` — kontrak API (auth, error envelope, rate limit 429, concurrency 429, panjang pertanyaan) tanpa LLM/network.
-- `tests/test_inbound_rate_limit.py` — limiter Redis dengan fake client (fail-closed, hashing, window).
-- `tests/test_search_provider.py` — seleksi provider, fallback, atribut span MLflow.
-- `tests/test_robots.py` — allow/disallow, fail-open & fail-closed, 404=allow (RFC 9309).
-- `tests/integration/test_nginx_config.py` — kontrak ingress Nginx (smoke via Docker bila tersedia).
-- Test lain: evidence dedup, extraction, tool limits, rate limit outbound, config, tracing, LLM.
+- `tests/` mencakup config, API, search, fetch/extract, evidence, research/synthesis,
+  tracing, frontend, evaluasi, dan integration Nginx. Jalankan seluruh suite;
+  test individual ada di `tests/`.
 
 # Security Considerations
 
@@ -127,35 +132,13 @@ uv run python -m pytest tests/
 
 # Environment Variables
 
-Salin dari `.env.example` (template kanonik — `config.py` tanpa default; variabel wajib
-yang hilang memfail-fast startup). Kredensial wajib: `MODELHUB_API_KEY` (atau kredensial
-Azure untuk fallback) dan `API_ALLOWED_KEYS` + `UI_API_KEY` + `UI_TO_API_KEY`. Nilai referensi variabel
-operasional ada di `.env.example` — ringkasan:
-
-| Variable | Default | Keterangan |
-|----------|---------|------------|
-| `MODELHUB_API_KEY` / `MODELHUB_BASE_URL` / `MODELHUB_MODEL_NAME` | — / ModelHub / `gpt-4o-mini` | Provider LLM utama |
-| `AZURE_OPENAI_*` | — | Fallback (opsional) |
-| `LLM_TEMPERATURE` / `LLM_MAX_TOKENS` / `LLM_TIMEOUT` / `LLM_MAX_RETRIES` | `0.7` / `1500` / `60` / `2` | Parameter inferensi LLM |
-| `API_ALLOWED_KEYS`, `UI_API_KEY`, `UI_TO_API_KEY` | — | Auth API & UI (key browser vs key service Nginx) |
-| `SEARCH_PROVIDER` | `duckduckgo` | `duckduckgo` \| `searxng` |
-| `SEARXNG_BASE_URL` | `http://searxng:8080` (Compose) | JSON API SearXNG |
-| `SEARCH_FALLBACK_ENABLED` | `true` | Fallback antar provider |
-| `MLFLOW_TRACING_ENABLED` / `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT_ID` | `true` / `http://localhost:5000` / `1` | Experiment harus sudah ada; tracing tidak membuat experiment |
-| `MLFLOW_CONTAINER_TRACKING_URI` | `http://host.docker.internal:5000` (Compose) | API container menuju server MLflow host via host-gateway; allowlist server harus mengizinkan `host.docker.internal:5000` |
-| `MLFLOW_HTTP_TIMEOUT` / `MLFLOW_PREFLIGHT_TIMEOUT` | `5` / `2.0` | Timeout REST MLflow & pre-flight TCP (detik) |
-| `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` (Compose) | Kosong = nonaktif |
-| `RATE_LIMIT_REQUESTS_PER_MINUTE` | `10` | Per API key per menit |
-| `RATE_LIMIT_REDIS_TIMEOUT` / `RATE_LIMIT_WINDOW_SECONDS` | `1.0` / `60` | Timeout socket Redis & window (detik) |
-| `MAX_CONCURRENT_AGENT_RUNS` | `4` | Konkurensi agent; sisanya 429 |
-| `MAX_QUESTION_LENGTH` | `2000` | Panjang pertanyaan maks |
-| `ROBOTS_FAIL_OPEN` | `true` | robots.txt gagal (non-404): izinkan/tolak |
-| `ROBOTS_CACHE_TTL_SECONDS` | `3600` | TTL cache robots.txt (detik) |
-| `MAX_TOOL_CALLS` / `MAX_URLS_PER_QUERY` / `MAX_SEARCH_RESULTS` | `5` / `3` / `5` | Tool limits |
-| `REQUEST_TIMEOUT` / `BROWSER_FALLBACK_ENABLED` | `30` / `true` | Fetching |
-| `FETCH_MAX_RETRIES` / `BROWSER_WAIT_TIMEOUT` / `FETCH_MAX_CONTENT_CHARS` | `3` / `10` / `3000` | Retry fetch, wait Selenium, truncation konten |
-| `USER_AGENT` / `RATE_LIMIT_PER_DOMAIN_SECONDS` | `BrowsingAgent/0.1` / `1.0` | Safe crawling |
-| `CHUNK_SIZE` | `2000` | Ukuran chunk konten |
+Semua parameter operasional wajib ada di `.env`; `.env.example` adalah daftar kanonik
+(nama, komentar, nilai referensi). `config.py` fail-fast untuk variabel wajib; Azure
+OpenAI dan `CHROME_BIN`/`CHROMEDRIVER_PATH` opsional. Kredensial: `MODELHUB_*` (atau
+`AZURE_OPENAI_*`), `API_ALLOWED_KEYS`, `UI_API_KEY`, `UI_TO_API_KEY`. Compose juga
+mewajibkan `RATE_LIMIT_REDIS_URL`, `SEARXNG_BASE_URL`,
+`MLFLOW_CONTAINER_TRACKING_URI`, `MLFLOW_EXPERIMENT_ID`, `SEARCH_PROVIDER`, dan
+`NGINX_PORT`.
 
 # Architecture Decision Records
 
@@ -188,4 +171,5 @@ ruff check/format + hygiene check pada setiap commit.
 Status dan rencana ada di `docs/plan_upgrade.md`. Fase 1–11 (MVP modular) selesai;
 ADLC M1 (config robustness, ruff+mypy, CI), M2 (rate limit Redis, robots policy,
 docs/ADR, nginx resolver), M3 (coverage/E2E, frontend CI, deps cleanup, structured
-logging), dan M4 (release hygiene) selesai. Lanjutan: runbook, GitLab CI, backlog.
+logging), dan M4 (release hygiene) selesai. Runbook `docs/RUNBOOK.md` dan GitLab CI
+`.gitlab-ci.yml` sudah tersedia; lanjutan: backlog.

@@ -13,7 +13,7 @@ def _set_config(monkeypatch, **kwargs):
         monkeypatch.setattr(search_module.config, name, value)
 
 
-def test_searxng_provider_maps_json_to_line_format(monkeypatch):
+def test_searxng_provider_maps_json_results(monkeypatch):
     _set_config(
         monkeypatch,
         SEARCH_PROVIDER="searxng",
@@ -40,13 +40,15 @@ def test_searxng_provider_maps_json_to_line_format(monkeypatch):
     fake_client.__exit__ = Mock(return_value=False)
 
     with patch.object(search_module.httpx, "Client", return_value=fake_client):
-        answer = search_module.search_tool.invoke({"query": "kurs dollar"})
+        results = search_module.search_web("kurs dollar")
 
     fake_client.get.assert_called_once()
     assert fake_client.get.call_args.kwargs["params"]["safesearch"] == config.SEARXNG_SAFESEARCH
-    assert "https://www.bi.go.id/kurs" in answer
-    assert "https://example.com/kurs" in answer
-    assert "Kurs BI" in answer
+    assert [result.url for result in results] == [
+        "https://www.bi.go.id/kurs",
+        "https://example.com/kurs",
+    ]
+    assert [result.title for result in results] == ["Kurs BI", "General"]
 
 
 def test_fallback_to_searxng_when_ddgs_fails(monkeypatch):
@@ -83,9 +85,9 @@ def test_fallback_to_searxng_when_ddgs_fails(monkeypatch):
         patch.object(search_module.httpx, "Client", return_value=fake_client),
         patch.object(search_module.time, "sleep"),
     ):
-        answer = search_module.search_tool.invoke({"query": "test"})
+        results = search_module.search_web("test")
 
-    assert "https://example.com/x" in answer
+    assert any(result.url == "https://example.com/x" for result in results)
 
 
 def test_searxng_skipped_as_fallback_when_not_configured(monkeypatch):
@@ -109,19 +111,16 @@ def test_searxng_skipped_as_fallback_when_not_configured(monkeypatch):
     monkeypatch.setattr(search_module, "DDGS", FailingDDGS)
 
     with patch.object(search_module.time, "sleep"):
-        answer = search_module.search_tool.invoke({"query": "test"})
-
-    assert answer.startswith("[Search Tool]: Tidak dapat melakukan pencarian.")
+        with pytest.raises(RuntimeError, match="Tidak dapat melakukan pencarian"):
+            search_module.search_web("test")
 
 
 def test_unknown_provider_returns_clear_error(monkeypatch):
     """config.py menolak SEARCH_PROVIDER asing saat startup; guard run-time tetap ada."""
     _set_config(monkeypatch, SEARCH_PROVIDER="google")
 
-    answer = search_module.search_tool.invoke({"query": "test"})
-
-    assert "SEARCH_PROVIDER tidak dikenal" in answer
-    assert "google" in answer
+    with pytest.raises(RuntimeError, match="SEARCH_PROVIDER tidak dikenal"):
+        search_module.search_web("test")
 
 
 def test_searxng_without_base_url_raises(monkeypatch):
@@ -176,9 +175,9 @@ def test_provider_recorded_on_mlflow_span(monkeypatch):
         patch.object(search_module.httpx, "Client", return_value=fake_client),
         patch.object(search_module.time, "sleep"),
     ):
-        answer = search_module.search_tool.invoke({"query": "test"})
+        results = search_module.search_web("test")
 
-    assert "https://example.com/x" in answer
+    assert any(result.url == "https://example.com/x" for result in results)
     assert captured == {"search.provider": "searxng", "search.fallback_used": True}
 
 
@@ -193,10 +192,9 @@ def test_ranking_dedups_by_url_and_never_rewrites_commas(monkeypatch):
         ),
     ]
 
-    formatted = search_module._format_results(results)
+    ranked = search_module._rank_and_dedup(results, 5)
 
-    assert "link: https://example.com/a,b;c" in formatted
-    assert "link: https://example.gov/a,b;c" in formatted
-    assert formatted.count("https://example.com/a,b;c") == 1
-    # Domain pemerintah dirank lebih dulu, tanpa memotong URL.
-    assert formatted.index("https://example.gov") < formatted.index("https://example.com")
+    assert [result.url for result in ranked] == [
+        "https://example.gov/a,b;c",
+        "https://example.com/a,b;c",
+    ]

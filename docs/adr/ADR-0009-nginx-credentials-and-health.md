@@ -13,8 +13,9 @@ mati, sehingga health check port publish menganggap Nginx sehat padahal UI/API t
 
 - Credential terpisah: `UI_API_KEY` (browser → Nginx `/ui-api/*`) harus terdaftar di
   `API_ALLOWED_KEYS`; `UI_TO_API_KEY` (Nginx → API) boleh berbeda dan juga wajib terdaftar.
-  Nginx menyuntik `Authorization: Bearer ${UI_TO_API_KEY}`; `UI_API_KEY` diteruskan ke
-  container Nginx dan diverifikasi di sisi API, tetapi tidak pernah dipakai di template.
+  Nginx menyuntik `Authorization: Bearer ${UI_TO_API_KEY}`; `UI_API_KEY` hanya divalidasi
+  saat startup (harus ada di `API_ALLOWED_KEYS`); request UI memakai `UI_TO_API_KEY` yang
+  disuntik Nginx dan tidak pernah dipakai di template.
 - Nginx mengekspos dua health check: `/healthz` (Nginx hidup, tidak berubah) dan
   `/healthz/ready` (proxy ke API `/healthz`; 502 bila API mati). Health check port Docker
   dan staging memakai `/healthz/ready`.

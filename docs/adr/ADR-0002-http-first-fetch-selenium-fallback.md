@@ -12,12 +12,13 @@ dipakai untuk bypass anti-bot (safe crawling policy).
 ## Decision
 
 `tools/fetch.py` selalu mencoba `httpx` lebih dulu. Selenium headless Chrome hanya
-dipakai sebagai fallback jika HTTP gagal/konten kosong, dan hanya jika
-`BROWSER_FALLBACK_ENABLED=true`. Tidak ada proxy rotation, fingerprint spoofing,
-atau bypass CAPTCHA/paywall.
+dipakai sebagai fallback jika HTML hasil ekstraksi lebih pendek dari
+`BROWSER_JS_HEAVY_MIN_CHARS`; kegagalan HTTP/non-2xx tidak memicu fallback. Fallback
+hanya aktif jika `BROWSER_FALLBACK_ENABLED=true`. Tidak ada proxy rotation, fingerprint
+spoofing, atau bypass CAPTCHA/paywall.
 
 ## Consequences
 
 - Mayoritas fetch cepat dan murah; Selenium hanya menyala untuk kasus sulit.
-- Resource usage predictable; Chrome driver dikelola `webdriver-manager` dan dibersihkan di shutdown (`fetcher_cleanup`).
+- Resource usage predictable; Chrome driver dikelola `webdriver-manager` atau `CHROMEDRIVER_PATH`/`CHROME_BIN`, dan dibersihkan di shutdown (`fetcher_cleanup`).
 - Situs yang butuh interaksi nyata (login, CAPTCHA) memang tidak didukung — by design.

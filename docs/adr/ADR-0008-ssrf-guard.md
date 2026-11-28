@@ -20,6 +20,8 @@ dan `backend`.
   desimal, hex, dan IPv4-embedded IPv6 (`http://2130706433/`, `::ffff:127.0.0.1`) —
   dicek setelah endpoint di-resolve.
 - Setelah DNS resolve, salah satu alamat target privat/link-local/reserved.
+- Kegagalan satu family DNS diabaikan bila family lain menghasilkan alamat; tidak ada
+  alamat sama sekali = blokir.
 
 Transport tetap memakai DNS resolver sistem; TTL TOCTOU kecil diterima karena target
 adalah intranet satu host. Verifikasi memakai `fetch` yang sama lintas HTTP dan Selenium.

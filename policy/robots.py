@@ -95,9 +95,3 @@ def is_url_allowed(target_url: str, user_agent: str | None = None) -> bool:
     except Exception as e:
         print(f"[Robots Policy]: Error parsing robots.txt untuk {target_url}: {e}")
         return config.ROBOTS_FAIL_OPEN  # Fail-open default: izinkan jika parser error
-
-
-def clear_robots_cache() -> None:
-    """Bersihkan cache robots.txt (berguna untuk testing)."""
-    _robots_cache.clear()
-    _cache_timestamp.clear()

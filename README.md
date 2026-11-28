@@ -7,7 +7,7 @@ Agen browsing web yang aman, modular, dan legal-compliant untuk menjawab pertany
 - **LLM dengan ModelHub (utama) / Azure OpenAI (fallback)** — `ChatOpenAI` OpenAI-compatible untuk ModelHub; `AzureChatOpenAI` hanya jika kredensial Azure diisi.
 - **Pencarian Adaptif** — LLM memahami intent/wilayah, merumuskan query singkat, memilih kandidat relevan, dan menyusun pencarian lanjutan berdasarkan kekurangan bukti. Provider tetap SearXNG/DuckDuckGo.
 - **HTTP-First Fetching** — `httpx` sebagai default; browser Selenium hanya jadi fallback untuk halaman JS-heavy.
-- **Extract Konten Terstruktur** — Menggunakan `trafilatura` / `BeautifulSoup` untuk ekstrak judul, headings, teks utama, dan link.
+- **Extract Konten Terstruktur** — Menggunakan `trafilatura` / `BeautifulSoup` untuk ekstrak judul, headings, dan teks utama.
 - **Evidence & Citations Wajib** — Aplikasi mencari dan mengambil sumber sebelum LLM dipanggil. Jawaban harus mengutip bukti dengan `[1]`, `[2]`, dst.; array `citations` hanya berisi halaman yang berhasil diambil dan dikutip. Tanpa bukti atau referensi valid, aplikasi menolak menjawab, bukan mengarang sumber.
 - **Safe Crawling** — Cek `robots.txt`, User-Agent transparan, rate limit per domain, dan stop pada 403/429.
 - **Tool Execution Limits** — Counter tool calls reset per query, dengan batas maksimum tool calls & URLs per query.
@@ -18,11 +18,15 @@ Agen browsing web yang aman, modular, dan legal-compliant untuk menjawab pertany
 ```
 browsing_agent/
 ├── main.py              # Entry point CLI
-├── config.py            # Environment & settings
+├── api.py               # FastAPI app factory + endpoint
+├── oplog.py             # Structured operational log
+├── config.py            # Environment & settings (fail-fast)
 ├── agent/
-│   └── planner.py       # Per-run state: tool limits, evidence store
+│   ├── planner.py       # Per-run state: tool limits, evidence store
+│   ├── research.py      # Riset iteratif: plan, select, review
+│   └── synthesis.py     # Sintesis jawaban + validasi citations
 ├── tools/
-│   ├── search.py        # DuckDuckGo search dengan retry & ranking
+│   ├── search.py        # Pluggable search (DDG/SearXNG) dengan retry & ranking
 │   ├── fetch.py         # HTTP-first fetcher + Selenium fallback
 │   └── extract.py       # Content extraction (trafilatura / BS4)
 ├── policy/
@@ -31,6 +35,10 @@ browsing_agent/
 │   └── rate_limit.py    # Per-domain rate limiter
 ├── storage/
 │   └── evidence.py      # Structured evidence store + dedup
+├── evals/               # Evaluasi offline (schema, scoring, GEPA)
+├── scripts/             # Utility manual
+├── frontend/            # UI statis
+├── nginx/               # Template ingress
 └── tests/               # Unit tests (pytest)
 ```
 
@@ -114,13 +122,16 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 
 | Variabel | Default | Keterangan |
 |----------|---------|------------|
+| `API_ALLOWED_KEYS` | `replace-with-caller-key,replace-with-ui-key,replace-with-ui-to-api-key` | Caller key yang diterima; `UI_API_KEY` dan `UI_TO_API_KEY` wajib termasuk |
+| `UI_API_KEY` | `replace-with-ui-key` | Key browser → Nginx; disuntik Nginx, bukan disimpan frontend |
+| `UI_TO_API_KEY` | `replace-with-ui-to-api-key` | Key service Nginx → API |
 | `MODELHUB_API_KEY` | — (wajib untuk provider utama) | Jika diisi, aplikasi memakai ModelHub sebagai LLM utama |
 | `MODELHUB_BASE_URL` | `https://modelhub.example/v1` | Endpoint OpenAI-compatible ModelHub (dummy di template) |
 | `MODELHUB_MODEL_NAME` | `your-model-name` | Nama model ModelHub (dummy di template) |
 | `MODELHUB_USER_AGENT` | `curl/8.0` | Header User-Agent untuk koneksi LLM, terpisah dari crawler |
 | `AZURE_OPENAI_ENDPOINT` | — (fallback Azure) | Endpoint Azure OpenAI |
 | `AZURE_OPENAI_API_KEY` | — (fallback Azure) | API Key Azure OpenAI |
-| `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o-mini` | Nama deployment model Azure |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | `your-azure-deployment` | Nama deployment model Azure (opsional) |
 | `AZURE_OPENAI_PREVIEW_API_VERSION` | — (fallback Azure) | Versi API preview |
 | `LLM_TEMPERATURE` | `0.7` | Temperature LLM (inferensi) |
 | `LLM_MAX_TOKENS` | `1500` | Maksimum token jawaban LLM |
@@ -135,15 +146,17 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 | `SEARCH_PROVIDER` | `searxng` | Provider pencarian: `duckduckgo` \| `searxng` |
 | `SEARXNG_BASE_URL` | `http://searxng:8080` | Base URL SearXNG JSON API (wajib di `.env`) |
 | `SEARCH_FALLBACK_ENABLED` | `true` | Fallback ke provider lain jika provider utama gagal |
+| `SEARXNG_SECRET` | `replace-with-random-searxng-secret` | Secret session SearXNG (Compose) |
+| `SEARXNG_CONTACT_URL` | `mailto:admin@example.com` | Kontak admin SearXNG (Compose) |
 | `SEARXNG_SAFESEARCH` | `1` | Filter konten SearXNG: `0` off, `1` moderate, `2` strict |
 | `SEARCH_TRUSTED_DOMAINS` | `.edu,.gov,...` | Domain kredibel untuk skor ranking (dicocokkan sebagai substring) |
 | `SEARCH_TRUSTED_SCORE` / `SEARCH_DEFAULT_SCORE` | `10` / `1` | Skor ranking untuk domain kredibel dan domain biasa |
-| `SEARCH_LOG_TOP_RESULTS` | `3` | Jumlah link teratas yang dicetak ke log |
 | `DDG_RETRY_BACKENDS` | `lite,lite,auto` | Urutan backend DuckDuckGo; `lite` dipetakan ke `duckduckgo` |
 | `DDG_RETRY_DELAY_SECONDS` | `1.0` | Jeda dasar retry DDG; attempt ke-N menunggu `N * nilai` |
 | `MAX_TOOL_CALLS` | `5` | Batas pemanggilan tool per query |
 | `MAX_URLS_PER_QUERY` | `3` | Batas URL unik yang dicoba di-fetch per query; gagal tetap dihitung, URL yang sama tidak menambah kuota |
 | `MAX_SEARCH_RESULTS` | `5` | Maksimum hasil search yang ditampilkan |
+| `SEARCH_CANDIDATE_LIMIT` | `20` | Pool kandidat sebelum seleksi relevansi |
 | `REQUEST_TIMEOUT` | `30` | Timeout HTTP request (detik) |
 | `BROWSER_FALLBACK_ENABLED` | `true` | Aktifkan Selenium fallback |
 | `FETCH_MAX_RETRIES` | `3` | Retry fetch HTTP dengan exponential backoff |
@@ -159,7 +172,6 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 | `ROBOTS_CACHE_TTL_SECONDS` | `3600` | TTL cache robots.txt per domain (detik) |
 | `GUARDRAIL_BLOCKED_DOMAINS` | `bca.co.id,...` | Domain sensitif yang ditolak (per label/subdomain) |
 | `GUARDRAIL_BLOCKED_PATH_SEGMENTS` | `login,signin,auth,admin` | Segmen path yang ditolak |
-| `CHUNK_SIZE` | `2000` | Ukuran chunk konten halaman |
 | `EVIDENCE_HASH_CHARS` | `500` | Jumlah karakter main_text untuk hash dedup evidence |
 | `EVIDENCE_SNIPPET_CHARS` | `300` | Panjang snippet pada citation/evidence |
 | `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` | URL Redis untuk rate limit per API key (wajib di `.env` untuk Compose); kosong = nonaktif khusus dev/CLI; Redis down = 503 |
@@ -172,6 +184,11 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 | `MAX_CONCURRENT_AGENT_RUNS` | `4` | Maksimum agent yang berjalan konkuren; sisanya ditolak 429 |
 | `MAX_QUESTION_LENGTH` | `2000` | Panjang maksimum pertanyaan (karakter) |
 | `NGINX_PORT` | `8080` | Port host untuk Nginx (Compose); wajib di `.env` |
+| `EVAL_TEMPERATURE` | `0` | Temperature evaluasi offline |
+| `EVAL_LLM_MAX_RETRIES` | `0` | Retry LLM evaluasi (harus 0) |
+| `EVAL_MAX_LM_CALLS` | `160` | Budget inference evaluasi |
+| `EVAL_GEPA_METRIC_CALLS` | `24` | Budget metrik GEPA |
+| `EVAL_SEED` | `17` | Seed evaluasi |
 
 Untuk menjalankan contoh penggunaan API ModelHub secara langsung:
 ```bash

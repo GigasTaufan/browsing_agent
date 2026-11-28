@@ -22,7 +22,6 @@ class EvidenceItem(BaseModel):
     snippet: str = ""
     canonical_url: str = ""
     fetched_at: str = ""
-    content_hash: str = ""
 
 
 class EvidenceStore:
@@ -40,13 +39,11 @@ class EvidenceStore:
     @staticmethod
     def _compute_hash(extracted: ExtractedPage) -> str:
         """
-        Menghitung content hash dari canonical_url + snippet main_text
-        (EVIDENCE_HASH_CHARS karakter pertama).
+        Menghitung content hash dari snippet main_text
+        (EVIDENCE_HASH_CHARS karakter pertama), tanpa URL.
         """
-        canonical = extracted.canonical_url or extracted.url
         snippet = extracted.main_text[: config.EVIDENCE_HASH_CHARS] if extracted.main_text else ""
-        raw = f"{canonical}||{snippet}"
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        return hashlib.sha256(snippet.encode("utf-8")).hexdigest()
 
     def dedup_by_hash(self, extracted: ExtractedPage) -> bool:
         """
@@ -87,7 +84,6 @@ class EvidenceStore:
             ),
             canonical_url=canonical,
             fetched_at=extracted.fetched_at,
-            content_hash=content_hash,
         )
 
         self.items.append(item)

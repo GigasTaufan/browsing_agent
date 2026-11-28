@@ -44,6 +44,14 @@ def sources(monkeypatch):
     return search, fetcher
 
 
+def fetch_unique(url):
+    return (
+        200,
+        "text/html",
+        f"<title>Kurs Dolar</title><body>Kurs adalah Rp18.200 per USD. Sumber {url}.</body>",
+    )
+
+
 def answer_agent(answer: str, required_sources: int = 1):
     agent = Mock()
 
@@ -118,6 +126,7 @@ def test_source_ids_are_remapped_to_api_citation_order(sources):
             title="Sumber kedua", url="https://example.com/kedua", snippet="Kurs"
         )
     )
+    sources[1].fetch.side_effect = fetch_unique
     agent = answer_agent("Kurs [2]", required_sources=2)
     result = run_agent(agent, "Berapa kurs dolar?")
     assert result.answer == "Kurs [1]"
@@ -145,6 +154,7 @@ def test_grouped_references_keep_all_cited_sources(sources):
             ),
         ]
     )
+    sources[1].fetch.side_effect = fetch_unique
     agent = answer_agent("Kurs [2, 3]", required_sources=3)
     result = run_agent(agent, "Berapa kurs dolar?")
     assert result.answer == "Kurs [1, 2]"

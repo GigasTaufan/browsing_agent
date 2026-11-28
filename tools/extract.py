@@ -16,8 +16,6 @@ except ImportError:
 from bs4 import BeautifulSoup, Tag
 from pydantic import BaseModel
 
-import config
-
 
 class ExtractedPage(BaseModel):
     """
@@ -29,8 +27,6 @@ class ExtractedPage(BaseModel):
     canonical_url: str | None = None
     main_text: str = ""
     headings: list[str] = []
-    links: list[str] = []
-    text_chunks: list[str] = []
     fetched_at: str = ""
     status_code: int = 200
 
@@ -43,12 +39,10 @@ def _get_str_attr(tag: Tag, name: str) -> str | None:
     return None
 
 
-def _extract_with_bs4(
-    soup: BeautifulSoup, url: str
-) -> tuple[str, str | None, list[str], list[str]]:
+def _extract_with_bs4(soup: BeautifulSoup, url: str) -> tuple[str, str | None, list[str]]:
     """
     Ekstraksi fallback menggunakan BeautifulSoup.
-    Returns: (main_text, title, headings_list, links_list)
+    Returns: (main_text, title, headings_list)
     """
     # Title
     title = None
@@ -64,13 +58,6 @@ def _extract_with_bs4(
             if text:
                 headings.append(text)
 
-    # Links
-    links = []
-    for a in soup.find_all("a", href=True):
-        href = _get_str_attr(a, "href")
-        if href:
-            links.append(urljoin(url, href))
-
     # Main text: prefer <main> atau <article>, fallback <body>
     main_tag = soup.find("main") or soup.find("article") or soup.find("body")
     if main_tag:
@@ -78,7 +65,7 @@ def _extract_with_bs4(
     else:
         main_text = " ".join(soup.get_text(separator=" ", strip=True).split())
 
-    return main_text, title, headings, list(set(links))  # dedup links
+    return main_text, title, headings
 
 
 def _extract_with_trafilatura(html: str, url: str) -> str | None:
@@ -102,44 +89,19 @@ def _extract_with_trafilatura(html: str, url: str) -> str | None:
         return None
 
 
-def _chunk_text(text: str, chunk_size: int | None = None) -> list[str]:
-    """
-    Memotong teks panjang menjadi chunk berukuran chunk_size (default dari config).
-    Split pada spasi terdekat untuk tidak memotong kata.
-    """
-    chunk_size = chunk_size or config.CHUNK_SIZE
-    if len(text) <= chunk_size:
-        return [text]
-
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        if end < len(text):
-            # Cari spasi terdekat ke belakang untuk split keren
-            space_pos = text.rfind(" ", start, end + 1)
-            if space_pos > start:
-                end = space_pos
-        chunks.append(text[start:end].strip())
-        start = end
-
-    return chunks
-
-
 def extract_page(html: str, url: str, status_code: int = 200) -> ExtractedPage:
     """
     Mengekstrak konten terstruktur dari HTML halaman web.
 
     Alur:
-        1. Parse dengan BeautifulSoup untuk metadata (title, canonical, headings, links).
+        1. Parse dengan BeautifulSoup untuk metadata (title, canonical, headings).
         2. Gunakan trafilatura untuk main text (lebih bersih).
         3. Fallback ke BeautifulSoup body text jika trafilatura gagal.
-        4. Chunking jika main_text terlalu panjang.
     """
     soup = BeautifulSoup(html, "lxml")
 
     # Metadata dari BS4
-    main_text_bs, title, headings, links = _extract_with_bs4(soup, url)
+    main_text_bs, title, headings = _extract_with_bs4(soup, url)
 
     # Main text dari trafilatura (lebih bersih)
     main_text = _extract_with_trafilatura(html, url)
@@ -156,17 +118,12 @@ def extract_page(html: str, url: str, status_code: int = 200) -> ExtractedPage:
         if canonical_url and canonical_url.startswith("/"):
             canonical_url = urljoin(url, canonical_url)
 
-    # Chunking
-    text_chunks = _chunk_text(main_text)
-
     return ExtractedPage(
         url=url,
         title=title,
         canonical_url=canonical_url or url,
         main_text=main_text,
         headings=headings,
-        links=list(dict.fromkeys(links)),  # Deduplicate preserve order
-        text_chunks=text_chunks,
         fetched_at=datetime.now(UTC).isoformat(),
         status_code=status_code,
     )

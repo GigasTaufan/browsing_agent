@@ -8,11 +8,10 @@ from collections.abc import Callable
 
 import httpx
 from ddgs import DDGS
-from langchain.tools import tool
 from pydantic import BaseModel
 
 import config
-from agent.planner import ToolLimitReached, check_and_increment
+from agent.planner import check_and_increment
 
 
 class SearchResult(BaseModel):
@@ -47,20 +46,6 @@ def _rank_and_dedup(results: list[SearchResult], max_results: int) -> list[Searc
 
     ranked = sorted(unique, key=lambda result: _score_url(result.url), reverse=True)
     return ranked[:max_results]
-
-
-def _format_results(results: list[SearchResult]) -> str:
-    """Rank, dedup, log link teratas, dan kembalikan string untuk LLM."""
-    ranked = _rank_and_dedup(results, config.MAX_SEARCH_RESULTS)
-
-    if ranked:
-        print(f"[Search Tool]: Ditemukan {len(ranked)} sumber relevan (setelah ranking):")
-        for i, result in enumerate(ranked[: config.SEARCH_LOG_TOP_RESULTS], 1):
-            print(f"   {i}. {result.url}")
-
-    return ", ".join(
-        f"snippet: {result.snippet}, title: {result.title}, link: {result.url}" for result in ranked
-    )
 
 
 def _search_ddgs(query: str) -> list[SearchResult]:
@@ -146,19 +131,6 @@ def _record_provider_attributes(provider_name: str, fallback_used: bool) -> None
             )
     except Exception:
         pass
-
-
-@tool(
-    "search_tool",
-    description="Lakukan pencarian web (DuckDuckGo atau SearXNG sesuai konfigurasi) untuk mendapatkan daftar link dan ringkasan.",
-)
-def search_tool(query: str) -> str:
-    """Cari web dan format hasil untuk konsumen tool LangChain."""
-    try:
-        results = search_web(query)
-    except (RuntimeError, ToolLimitReached) as exc:
-        return str(exc)
-    return _format_results(results) if results else "Tidak ada hasil pencarian."
 
 
 def search_web(query: str) -> list[SearchResult]:

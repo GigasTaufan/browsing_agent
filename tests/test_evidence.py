@@ -18,7 +18,6 @@ def make_extracted(url: str, text: str, title: str | None = None) -> ExtractedPa
         main_text=text,
         canonical_url=url,
         headings=[],
-        links=[],
         fetched_at="2024-01-01T00:00:00+00:00",
         status_code=200,
     )
@@ -102,10 +101,27 @@ def test_hash_window_comes_from_config(monkeypatch):
     monkeypatch.setattr(config, "EVIDENCE_HASH_CHARS", 4)
     first = make_extracted("https://a.example/x", "abcd1111")
     second = make_extracted("https://b.example/y", "abcd2222")
-    first.canonical_url = second.canonical_url = "https://canonical.example/page"
 
     assert EvidenceStore._compute_hash(first) == EvidenceStore._compute_hash(second)
 
     monkeypatch.setattr(config, "EVIDENCE_HASH_CHARS", 6)
 
     assert EvidenceStore._compute_hash(first) != EvidenceStore._compute_hash(second)
+
+
+def test_same_content_different_url_is_deduplicated():
+    """Konten identik di URL berbeda tetap satu evidence (hash isi, bukan URL)."""
+    store = EvidenceStore()
+
+    store.add(make_extracted("https://a.example/x", "konten yang sama"))
+
+    assert store.add(make_extracted("https://b.example/y", "konten yang sama")) is None
+    assert len(store.items) == 1
+
+
+def test_evidence_item_does_not_expose_content_hash():
+    """Hash hanya dipakai internal store, bukan bagian schema evidence."""
+    item = EvidenceStore().add(make_extracted("https://example.com/a", "konten"))
+
+    assert item is not None
+    assert "content_hash" not in item.model_dump()

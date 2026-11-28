@@ -4,7 +4,7 @@ Semua perubahan signifikan pada proyek ini didokumentasikan di file ini.
 Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/),
 dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.0.0] - 2026-11-28
 
 ### Added
 
@@ -42,7 +42,7 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 - `SEARCH_PROVIDER` kini divalidasi di `config.py` (fail-fast saat startup, bukan saat tool dipanggil).
 - `pip-audit` kini blocking di CI (sebelumnya `continue-on-error`); CI memakai `pip-audit` tanpa `--skip-editable`.
 - Test memaksa nilai env test (menimpa `.env` lokal) agar hasil suite tidak bergantung konfigurasi developer.
-- Pipeline pencarian bertipe: provider mengembalikan `list[SearchResult]`; format string untuk LLM dihasilkan satu kali (tidak lagi regex-extract dari teks).
+- Pipeline pencarian bertipe: provider dan `search_web()` mengembalikan `list[SearchResult]`; tidak ada lagi format string untuk LLM.
 - Fetch HTTP diserialkan per request (`_fetcher_lock`) agar satu `httpx.Client` tidak dipakai bersamaan; HTML diparse sekali (`extract_page`) sebelum deteksi JS-heavy.
 - Guardrails URL dicek sebelum kuota tool terpakai, sehingga URL internal yang ditolak tidak menghabiskan kuota.
 - Tes Compose memakai salinan konfigurasi dan `.env` sintetis, sehingga kegagalan assertion tidak menampilkan kredensial lokal.
@@ -56,11 +56,13 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 - Pemeriksaan kelengkapan ModelHub/Azure di `main.load_llm` (dipindah ke `config.py`).
 - `searxng/settings.yml`: `secret_key` dari environment `SEARXNG_SECRET` (Compose mewajibkannya), tidak lagi nilai dev ter-commit.
 - Dead code: `EvidenceStore.get_citations`/`get_citations_text`, `load_dotenv()` ganda di `main.main`, cabang `isinstance(args.question, list)` yang tidak mungkin, ekstraksi canonical duplikat di `tools/extract.py`.
+- Wrapper pencarian `search_tool`/`_format_results`; `ExtractedPage.links`/`text_chunks` dan `_chunk_text`; `EvidenceItem.content_hash`; `DomainRateLimiter.reset`; `clear_robots_cache`; env `CHUNK_SIZE` dan `SEARCH_LOG_TOP_RESULTS`.
 
 ### Fixed
 
 - UI merender jawaban Markdown menjadi elemen DOM aman (bold, italic, heading, list, code, blockquote, link http/https) tanpa `innerHTML`; marker `**`/`*` tidak lagi tampil literal.
 - Guardrail SSRF memblokir semua host publik IPv4-only di container karena lookup AAAA `EAI_NODATA` dianggap kegagalan total. Kegagalan satu family DNS kini diabaikan; host tetap diblokir bila tidak ada alamat sama sekali atau salah satu alamat hasil resolve privat.
+- Dedup evidence memakai hash isi tanpa canonical URL, sehingga konten identik di URL berbeda tidak tersimpan ganda.
 
 ## [1.2.0] - 2026-11-25
 

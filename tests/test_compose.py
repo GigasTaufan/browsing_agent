@@ -95,3 +95,11 @@ def test_nginx_keys_come_only_from_sanitized_env_file():
     assert rendered["services"]["api"]["environment"]["API_ALLOWED_KEYS"] == (
         "test-caller-key,test-ui-key"
     )
+
+
+def test_api_routes_mlflow_to_host_gateway_with_existing_experiment():
+    rendered = compose_config("config", "--format", "json")
+    api = rendered["services"]["api"]
+    assert api["extra_hosts"] == ["host.docker.internal=host-gateway"]
+    assert api["environment"]["MLFLOW_TRACKING_URI"] == "http://host.docker.internal:5000"
+    assert api["environment"]["MLFLOW_EXPERIMENT_ID"] == "1"

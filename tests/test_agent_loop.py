@@ -152,3 +152,56 @@ def test_grouped_references_keep_all_cited_sources(sources):
         "https://example.com/dua",
         "https://example.com/tiga",
     ]
+
+
+def test_run_agent_creates_one_outer_span_with_sanitized_io(sources, monkeypatch):
+    import hashlib
+    from contextlib import contextmanager
+    from unittest.mock import Mock
+
+    import main
+
+    captured = {}
+    span = Mock()
+    span.set_inputs.side_effect = lambda value: captured.setdefault("inputs", value)
+    span.set_outputs.side_effect = lambda value: captured.setdefault("outputs", value)
+
+    @contextmanager
+    def start_span(**kwargs):
+        captured["span_kwargs"] = kwargs
+        yield span
+
+    tracking = SimpleNamespace(
+        start_span=start_span, entities=SimpleNamespace(SpanType=SimpleNamespace(AGENT="agent"))
+    )
+    monkeypatch.setattr(main, "_mlflow", tracking, raising=False)
+    question = "Cari untuk alice@example.test dengan Bearer SUPER_SECRET"
+    result = run_agent(answer_agent("Jawaban publik [1]"), question)
+
+    assert result.answer == "Jawaban publik [1]"
+    assert captured["inputs"] == {
+        "question": question,
+        "question_chars": len(question),
+        "question_sha256": hashlib.sha256(question.encode()).hexdigest(),
+    }
+    assert captured["outputs"] == {
+        "answer": result.answer,
+        "answer_chars": len(result.answer),
+        "citation_count": 1,
+        "citation_hosts": ["example.com"],
+    }
+    assert captured["span_kwargs"]["name"] == "browsing_agent.request"
+    assert captured["span_kwargs"]["span_type"] == "agent"
+
+
+def test_span_setup_failure_does_not_break_agent_request(sources, monkeypatch):
+    import main
+
+    class BrokenTracing:
+        def start_span(self, **_):
+            raise RuntimeError("trace exporter down")
+
+    monkeypatch.setattr(main, "_mlflow", BrokenTracing(), raising=False)
+    result = run_agent(answer_agent("Jawaban publik [1]"), "Berapa kurs dolar?")
+    assert result.answer == "Jawaban publik [1]"
+    assert [item.url for item in result.citations] == ["https://example.com/kurs"]

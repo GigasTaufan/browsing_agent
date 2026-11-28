@@ -125,9 +125,10 @@ Semua parameter operasional wajib ada di `.env` — salin dari `.env.example`. `
 | `LLM_MAX_TOKENS` | `1500` | Maksimum token jawaban LLM |
 | `LLM_TIMEOUT` | `60` | Timeout request LLM (detik) |
 | `LLM_MAX_RETRIES` | `2` | Retry otomatis request LLM |
-| `MLFLOW_TRACING_ENABLED` | `true` | Aktifkan MLflow GenAI tracing untuk LangChain |
-| `MLFLOW_TRACKING_URI` | URL server MLflow internal (lihat `.env.example`) | URI server MLflow untuk tracing |
-| `MLFLOW_EXPERIMENT_NAME` | `browsing-agent-dev` | Nama experiment MLflow |
+| `MLFLOW_TRACING_ENABLED` | `true` | Aktifkan tracing LangChain dan span root request |
+| `MLFLOW_TRACKING_URI` | `http://localhost:5000` | URI MLflow untuk proses di host, lihat `.env.example` |
+| `MLFLOW_EXPERIMENT_ID` | `1` | ID experiment yang sudah ada; aplikasi tidak membuat experiment baru |
+| `MLFLOW_CONTAINER_TRACKING_URI` | `http://host.docker.internal:5000` (Compose) | API container menuju host via host-gateway; allowlist server harus mengizinkan `host.docker.internal:5000` |
 | `MLFLOW_HTTP_TIMEOUT` | `5` | Timeout REST call MLflow (detik) |
 | `MLFLOW_PREFLIGHT_TIMEOUT` | `2.0` | Timeout pre-flight TCP check MLflow saat startup (detik) |
 | `SEARCH_PROVIDER` | `duckduckgo` | Provider pencarian: `duckduckgo` \| `searxng` |
@@ -191,6 +192,7 @@ Jangan gunakan kredensial provider nyata dalam pengujian. Tes unit API memakai a
 - `/api/` meneruskan header `Authorization` caller apa adanya, sedangkan `/ui-api/` menggunakan `UI_TO_API_KEY` dari environment Nginx (ADR-0009).
 - Halaman UI merupakan halaman uji, bukan autentikasi pengguna. Semua pengakses dapat memakai akses API yang diberikan key UI.
 - Jangan mengekspos port HTTP `8080` ke jaringan yang tidak tepercaya. HTTPS intranet wajib disediakan oleh reverse proxy atau terminasi TLS di depan Nginx.
+- Trace MLflow `browsing_agent.request` menyimpan pertanyaan pengguna dan jawaban akhir mentah, serta metadata citation. Batasi akses dan retensi experiment sesuai kebijakan privasi data.
 
 ## Kepatuhan & Batasan
 

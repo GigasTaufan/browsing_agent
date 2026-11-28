@@ -13,7 +13,12 @@ services:
       # Provider pencarian: SearXNG internal (self-hosted). DuckDuckGo bisa diblokir/CAPTCHA
       # dari IP server, sehingga default ke SearXNG.
       SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080}
+      # Di container, localhost menunjuk ke API sendiri; alias ini menuju host Docker.
+      MLFLOW_TRACKING_URI: ${MLFLOW_CONTAINER_TRACKING_URI:-http://host.docker.internal:5000}
+      MLFLOW_EXPERIMENT_ID: ${MLFLOW_EXPERIMENT_ID:-1}
       SEARCH_PROVIDER: ${SEARCH_PROVIDER:-searxng}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - backend
       - egress

@@ -78,7 +78,7 @@ SEARXNG_BASE_URL = os.getenv("SEARXNG_BASE_URL")
 # --- MLflow GenAI Tracing ---
 # MLFLOW_TRACKING_URI dan kawan-kawannya hanya wajib jika tracing aktif.
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
-MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME")
+MLFLOW_EXPERIMENT_ID = os.getenv("MLFLOW_EXPERIMENT_ID")
 
 # --- API Inbound Limits ---
 # Rate limit per API key via Redis; kosong = dinonaktifkan (dev/CLI). Redis down = 503 (ADR-0006).
@@ -204,7 +204,7 @@ if MLFLOW_TRACING_ENABLED:
     _require(
         [
             "MLFLOW_TRACKING_URI",
-            "MLFLOW_EXPERIMENT_NAME",
+            "MLFLOW_EXPERIMENT_ID",
             "MLFLOW_HTTP_TIMEOUT",
             "MLFLOW_PREFLIGHT_TIMEOUT",
         ]

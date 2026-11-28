@@ -16,7 +16,7 @@ untuk menjawab pertanyaan umum pengguna dengan informasi dari web, lengkap denga
 citations. Agen memakai pencarian web pluggable (DuckDuckGo / self-hosted SearXNG),
 fetch HTTP-first (fallback Selenium), dan LLM via **ModelHub (utama)** dengan fallback
 Azure OpenAI. Dikemas sebagai CLI, API FastAPI ter-autentikasi, dan frontend statis
-di belakang Nginx (Docker Compose). Setiap run di-trace ke MLflow GenAI tracing.
+di belakang Nginx (Docker Compose). Saat MLflow tersedia, satu request agent dicatat sebagai trace root dengan span LangChain turunannya.
 
 Bahasa utama untuk komentar, docstring, dan dokumentasi adalah **Bahasa Indonesia**.
 
@@ -30,7 +30,7 @@ Bahasa utama untuk komentar, docstring, dan dokumentasi adalah **Bahasa Indonesi
 - **Content Extraction**: `trafilatura` (primary) / `beautifulsoup4` + `lxml` (fallback)
 - **API**: FastAPI + Nginx ingress (API key injection untuk UI)
 - **Rate Limit**: Redis (per API key, fixed window, fail-closed — Redis down = 503)
-- **Tracing**: MLflow GenAI (`mlflow.langchain.autolog`)
+- **Tracing**: MLflow GenAI; `mlflow.langchain.autolog` untuk LangGraph/model, ditambah satu span root per request.
 - **Environment**: `python-dotenv`
 - **Testing**: `pytest`
 - **Quality**: `ruff` (lint + format, line-length 100) dan `mypy` (pydantic plugin)
@@ -121,6 +121,7 @@ uv run python -m pytest tests/
 - **robots.txt**: Dicek sebelum fetch; kebijakan fail-open/closed via `ROBOTS_FAIL_OPEN` (ADR-0004).
 - **Rate limiting**: Outbound per-domain delay; inbound per-API-key via Redis, fail-closed 503 (ADR-0006).
 - **Input validation**: Guardrails (automation/bypass sesuai PRD, URL internal/privat ditolak — ADR-0007/0008) + panjang pertanyaan (`MAX_QUESTION_LENGTH`).
+- **Privasi trace**: span `browsing_agent.request` menyimpan pertanyaan dan jawaban akhir mentah di MLflow; batasi akses dan retensi sesuai kebijakan data.
 - **Safe crawling policy**: Tidak ada proxy rotation, fingerprint spoofing, CAPTCHA/paywall bypass. Dilarang keras.
 - **Browser isolation**: Selenium headless via `ChromeDriverManager`.
 
@@ -140,7 +141,8 @@ operasional ada di `.env.example` — ringkasan:
 | `SEARCH_PROVIDER` | `duckduckgo` | `duckduckgo` \| `searxng` |
 | `SEARXNG_BASE_URL` | `http://searxng:8080` (Compose) | JSON API SearXNG |
 | `SEARCH_FALLBACK_ENABLED` | `true` | Fallback antar provider |
-| `MLFLOW_TRACING_ENABLED` / `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT_NAME` | `true` / — / `browsing-agent-dev` | GenAI tracing |
+| `MLFLOW_TRACING_ENABLED` / `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT_ID` | `true` / `http://localhost:5000` / `1` | Experiment harus sudah ada; tracing tidak membuat experiment |
+| `MLFLOW_CONTAINER_TRACKING_URI` | `http://host.docker.internal:5000` (Compose) | API container menuju server MLflow host via host-gateway; allowlist server harus mengizinkan `host.docker.internal:5000` |
 | `MLFLOW_HTTP_TIMEOUT` / `MLFLOW_PREFLIGHT_TIMEOUT` | `5` / `2.0` | Timeout REST MLflow & pre-flight TCP (detik) |
 | `RATE_LIMIT_REDIS_URL` | `redis://redis:6379/0` (Compose) | Kosong = nonaktif |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `10` | Per API key per menit |

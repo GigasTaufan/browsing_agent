@@ -54,9 +54,10 @@ Tidak perlu redeploy frontend (key tidak pernah ada di aset statis).
 ## 4. Observability
 
 - **Health**: `GET /healthz` (Nginx hidup) dan `GET /healthz/ready` (200 hanya jika API hidup — dipakai healthcheck container); `docker compose ps`.
-- **Tracing**: MLflow di `MLFLOW_TRACKING_URI` (nilai intranet ada di `.env`),
-  experiment `browsing-agent-dev`. Setiap run agent menghasilkan trace; span `search_tool`
-  memiliki atribut `search.provider` dan `search.fallback_used`.
+- **Tracing**: experiment MLflow yang sudah ada dipilih lewat `MLFLOW_EXPERIMENT_ID` (default template `1`); aplikasi tidak membuat experiment.
+  Proses host memakai `MLFLOW_TRACKING_URI=http://localhost:5000`. API Compose memakai `MLFLOW_CONTAINER_TRACKING_URI=http://host.docker.internal:5000`; alias `host.docker.internal:host-gateway` disetel Compose, dan server MLflow harus mengizinkan `host.docker.internal:5000` di `MLFLOW_SERVER_ALLOWED_HOSTS`.
+  Setiap request agent menghasilkan satu root span `browsing_agent.request` dengan child spans LangGraph/model dan `browse_tool`. Atribut `search.provider`/`search.fallback_used` ditempel pada trace aktif; search bukan span tersendiri.
+  Inputs/outputs root berisi teks pertanyaan dan jawaban akhir mentah (selain jumlah karakter dan metadata citation). Batasi akses dan retensi trace karena dapat memuat data pengguna.
 - **Log operasional**: stderr container api berisi JSON lines dari `oplog`
   (`api.request` per request: `outcome`, `status`, `duration_ms`; `rate_limit.redis_error`):
   `docker compose logs api | grep '"event"'`.

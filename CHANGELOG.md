@@ -34,6 +34,8 @@ dan proyek mengikuti [Semantic Versioning](https://semver.org/).
 - Tes Compose memakai salinan konfigurasi dan `.env` sintetis, sehingga kegagalan assertion tidak menampilkan kredensial lokal.
 - Tes Nginx memakai aset sementara; mount prod/staging memakai SELinux shared `:z` agar tes atau staging tidak menyebabkan UI prod 403.
 - Retrieval wajib sebelum sintesis LLM; model tidak bisa melewati pencarian/fetch. Jawaban tanpa nomor referensi valid tidak ditampilkan; halaman kosong/error tidak menjadi citations. Nomor inline disinkronkan dengan id citations API.
+- Riset adaptif: reformulasi query sesuai intent/wilayah, seleksi kandidat oleh LLM, evaluasi isi halaman, pencarian lanjutan untuk kekurangan bukti, dedup lintas query dan prioritas lintas domain. Semua tetap dibatasi kuota per run.
+- `SEARCH_CANDIDATE_LIMIT` wajib di `.env` (referensi 20, >= `MAX_SEARCH_RESULTS`) agar kandidat tidak dipotong sebelum evaluasi relevansi.
 
 ### Removed
 

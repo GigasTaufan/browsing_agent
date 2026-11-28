@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 import config
 from api import create_app
 from policy.inbound_rate_limit import RateLimitDecision
+from tests.research_helpers import research_decision
 from tools import fetch as fetch_module
 from tools import search as search_module
 
@@ -21,6 +22,9 @@ class StubAgent:
         self.error = None
 
     def invoke(self, payload):
+        decision = research_decision(payload)
+        if decision is not None:
+            return {"messages": [SimpleNamespace(type="ai", content=decision)]}
         self.calls.append(payload)
         if self.error is not None:
             raise self.error
@@ -306,7 +310,8 @@ def test_ask_logs_single_request_event(api_client, monkeypatch):
         json={"question": "What is new?"},
     )
 
-    assert [event for event, _ in events] == ["api.request"]
-    assert events[0][1]["outcome"] == "ok"
-    assert events[0][1]["status"] == 200
-    assert "duration_ms" in events[0][1]
+    final_events = [fields for event, fields in events if event == "api.request"]
+    assert len(final_events) == 1
+    assert final_events[0]["outcome"] == "ok"
+    assert final_events[0]["status"] == 200
+    assert "duration_ms" in final_events[0]

@@ -89,7 +89,7 @@ def _search_ddgs(query: str) -> list[SearchResult]:
                 results = ddgs.text(
                     query,
                     backend=ddgs_backend,
-                    max_results=config.MAX_SEARCH_RESULTS,
+                    max_results=config.SEARCH_CANDIDATE_LIMIT,
                 )
 
             if results:
@@ -135,7 +135,7 @@ def _search_searxng(query: str) -> list[SearchResult]:
             url=result.get("url", ""),
             snippet=result.get("content", ""),
         )
-        for result in results[: config.MAX_SEARCH_RESULTS]
+        for result in results[: config.SEARCH_CANDIDATE_LIMIT]
     ]
 
 
@@ -196,7 +196,9 @@ def search_web(query: str) -> list[SearchResult]:
     last_error: Exception | None = None
     for provider_name in order:
         try:
-            results = _rank_and_dedup(providers[provider_name](query), config.MAX_SEARCH_RESULTS)
+            results = _rank_and_dedup(
+                providers[provider_name](query), config.SEARCH_CANDIDATE_LIMIT
+            )
             if results:
                 _record_provider_attributes(provider_name, fallback_used=provider_name != primary)
                 return results
